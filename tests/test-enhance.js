@@ -659,6 +659,21 @@ describe('VLMExtractor', () => {
         assert.ok(!vlm.situationMap['Test'].situation.includes('Old'));
     });
 
+    it('maybeExtract includes previous situation in API call', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let capturedMessages = null;
+        const mockAI = { callAPI: async (msgs) => { capturedMessages = msgs; return 'Updated situation'; } };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        sp.set('memory.today', { 'Test': 30 });
+        vlm.situationMap['Test'] = { situation: 'Previous context here', timestamp: Date.now() - 60000, focusSec: 20 };
+        await vlm.maybeExtract('Test', 'base64data', '');
+        const userContent = capturedMessages[1].content[0].text;
+        assert.ok(userContent.includes('Previous: Previous context here'));
+    });
+
     it('getSituation returns from short-term map', () => {
         const sp = new ShortTermPool();
         const lp = new LongTermPool();

@@ -148,7 +148,7 @@ const I18N = {
     'sys.historyScreenshot': '(User is using {0}, viewed screenshot)',
     'sys.historyUsing': '(User is using {0})',
     'sys.vlmPrompt': 'Extract 3-5 keywords and a short descriptive title from this screenshot. Format: keywords: k1, k2, k3 | title: descriptive title. No explanation. Output in {0}.',
-    'sys.vlmSituationPrompt': 'You are a context compressor. Given a screenshot, window title, and optional background data, output a concise situation description (max 200 chars). Focus on WHAT the user is actually doing right now. Discard background info that is irrelevant to the current screen. If background data contradicts the screenshot, trust the screenshot. Output in {0}. No explanation, just the situation.',
+    'sys.vlmSituationPrompt': 'You are a context compressor. Given a screenshot, window title, and optional background data, output a concise situation description (max 200 chars). Focus on WHAT the user is actually doing right now. Discard background info that is irrelevant to the current screen. If background data contradicts the screenshot, trust the screenshot. If a previous situation is provided, note what changed — avoid repeating unchanged details. Output in {0}. No explanation, just the situation.',
     'sys.knowledgePrompt': 'You are a knowledge organizer. Summarize the context in max 150 chars. Format: [Topic] key facts. Output in {0}.',
     'sys.emotionPrompt': 'You are an emotion classifier. Given the character\'s last spoken line, pick the single most fitting emotion from this list: [{0}]. Reply with ONLY the emotion name from the list, nothing else.',
     // Enhance system
@@ -362,7 +362,7 @@ const I18N = {
     'sys.historyScreenshot': '（用户正在使用{0}，已查看截图）',
     'sys.historyUsing': '（用户正在使用{0}）',
     'sys.vlmPrompt': '从这张截图中提取3-5个关键词和一个简短的描述性标题。格式：keywords: k1, k2, k3 | title: 描述性标题。不要解释。用{0}输出。',
-    'sys.vlmSituationPrompt': '你是一个上下文压缩器。根据截图、窗口标题和可选的背景数据，输出简洁的情景描述（最多200字符）。聚焦于用户当前正在做什么。丢弃与当前屏幕无关的背景信息。如果背景数据与截图矛盾，以截图为准。用{0}输出。不要解释，只输出情景。',
+    'sys.vlmSituationPrompt': '你是一个上下文压缩器。根据截图、窗口标题和可选的背景数据，输出简洁的情景描述（最多200字符）。聚焦于用户当前正在做什么。丢弃与当前屏幕无关的背景信息。如果背景数据与截图矛盾，以截图为准。如果提供了上次情景，描述变化的部分，不要重复未变的内容。用{0}输出。不要解释，只输出情景。',
     'sys.knowledgePrompt': '你是一个知识整理者。用最多150字符总结上下文。格式：[主题] 关键事实。用{0}输出。',
     'sys.emotionPrompt': '你是一个情绪分类器。根据角色最后说的话，从以下列表中选择最合适的一个情绪：[{0}]。只回复列表中的情绪名称，不要其他内容。',
     // 增强系统
@@ -576,7 +576,7 @@ const I18N = {
     'sys.historyScreenshot': '（ユーザーは{0}を使用中、スクリーンショットを確認済み）',
     'sys.historyUsing': '（ユーザーは{0}を使用中）',
     'sys.vlmPrompt': 'このスクリーンショットから3-5個のキーワードと短い説明的なタイトルを抽出してください。形式：keywords: k1, k2, k3 | title: 説明的なタイトル。説明不要。{0}で出力してください。',
-    'sys.vlmSituationPrompt': 'コンテキスト圧縮器として、スクリーンショット・ウィンドウタイトル・オプションの背景データから、簡潔な状況説明を出力してください（最大200文字）。ユーザーが今何をしているかに焦点を当ててください。現在の画面と無関係な背景情報は破棄してください。背景データとスクリーンショットが矛盾する場合はスクリーンショットを信頼してください。{0}で出力。説明不要、状況のみ。',
+    'sys.vlmSituationPrompt': 'コンテキスト圧縮器として、スクリーンショット・ウィンドウタイトル・オプションの背景データから、簡潔な状況説明を出力してください（最大200文字）。ユーザーが今何をしているかに焦点を当ててください。現在の画面と無関係な背景情報は破棄してください。背景データとスクリーンショットが矛盾する場合はスクリーンショットを信頼してください。前回の状況が提供された場合は変化した部分を記述し、変わっていない内容は繰り返さないでください。{0}で出力。説明不要、状況のみ。',
     'sys.knowledgePrompt': '知識整理者として、コンテキストを最大150文字で要約してください。形式：[トピック] 重要な事実。{0}で出力してください。',
     'sys.emotionPrompt': '感情分類器として、キャラクターの最後のセリフから、このリストの中で最も適切な感情を1つ選んでください：[{0}]。リストの感情名のみを回答してください。',
     // 拡張システム
