@@ -229,6 +229,9 @@ Please record the log output when the issue occurs and include it when submittin
 - New unit tests: config-manager / crypto-utils / validators (42 tests)
 - Settings page TTS save optimization: only sends tts config section, avoids triggering model hot-reload
 - Architecture diagram updated to reflect modular structure
+- Enhancement VLM refactor: replaced multi-section context assembly with single compressed situation buffer, VLM as sole compression point
+- New situationMap short-term cache (LRU eviction) + long-term persistence promotion
+- Simplified idle prompts, removed implementation detail references (screenshots/window titles)
 
 <details>
 <summary>Earlier Versions</summary>

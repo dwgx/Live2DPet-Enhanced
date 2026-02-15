@@ -529,26 +529,21 @@ describe('EnhancementOrchestrator', () => {
         assert.strictEqual(ctx, '');
     });
 
-    it('buildEnhancedContext includes today activity', () => {
+    it('buildEnhancedContext returns situation from VLM buffer', () => {
         const eo = new EnhancementOrchestrator(null);
-        eo.shortPool.set('memory.today', { 'Chrome': 60, 'VSCode': 120 });
-        const ctx = eo.buildEnhancedContext('test');
-        assert.ok(ctx.includes('VSCode'));
-        assert.ok(ctx.includes('Chrome'));
+        eo.vlmExtractor.situationMap['React Tutorial'] = {
+            situation: 'User is reading React hooks documentation',
+            timestamp: Date.now(),
+            focusSec: 30
+        };
+        const ctx = eo.buildEnhancedContext('React Tutorial');
+        assert.ok(ctx.includes('React hooks documentation'));
     });
 
-    it('buildEnhancedContext includes search results', () => {
+    it('buildEnhancedContext returns empty when no VLM situation', () => {
         const eo = new EnhancementOrchestrator(null);
-        eo.shortPool.set('search.results', 'React is a JavaScript library');
-        const ctx = eo.buildEnhancedContext('React');
-        assert.ok(ctx.includes('React is a JavaScript library'));
-    });
-
-    it('buildEnhancedContext includes RAG knowledge', () => {
-        const eo = new EnhancementOrchestrator(null);
-        eo.longPool.setForTitle('react basics', 'knowledge', { summary: 'React is for building UIs' });
-        const ctx = eo.buildEnhancedContext('react basics');
-        assert.ok(ctx.includes('React is for building UIs'));
+        const ctx = eo.buildEnhancedContext('unknown title');
+        assert.strictEqual(ctx, '');
     });
 
     it('stop flushes and cleans up', async () => {
@@ -623,29 +618,28 @@ describe('VLMExtractor', () => {
         assert.strictEqual(called, false);
     });
 
-    it('maybeExtract calls API and stores result', async () => {
+    it('maybeExtract calls API and stores in situationMap', async () => {
         const sp = new ShortTermPool();
         const lp = new LongTermPool();
-        const mockAI = { callAPI: async () => 'react, hooks, useState | React Hooks Tutorial' };
+        const mockAI = { callAPI: async () => 'User is learning React hooks from a tutorial page' };
         const vlm = new VLMExtractor(sp, lp, mockAI);
         vlm.enabled = true;
         vlm.minFocusSeconds = 0;
         sp.set('memory.today', { 'React Tutorial': 30 });
-        await vlm.maybeExtract('React Tutorial', 'base64data');
-        const stored = lp.getForTitle('React Tutorial', 'vlm');
-        assert.ok(stored);
-        assert.ok(stored.summary.includes('react'));
-        assert.strictEqual(stored.enrichedTitle, 'React Hooks Tutorial');
-        assert.strictEqual(stored.updateCount, 1);
+        await vlm.maybeExtract('React Tutorial', 'base64data', '');
+        const entry = vlm.situationMap['React Tutorial'];
+        assert.ok(entry);
+        assert.ok(entry.situation.includes('React'));
+        assert.strictEqual(entry.focusSec, 30);
     });
 
-    it('second extraction replaces summary instead of appending', async () => {
+    it('second extraction replaces situation', async () => {
         const sp = new ShortTermPool();
         const lp = new LongTermPool();
         let callCount = 0;
         const mockAI = { callAPI: async () => {
             callCount++;
-            return callCount === 1 ? 'old keywords | Old Title' : 'new keywords | New Title';
+            return callCount === 1 ? 'Old situation' : 'New situation';
         }};
         const vlm = new VLMExtractor(sp, lp, mockAI);
         vlm.enabled = true;
@@ -653,34 +647,64 @@ describe('VLMExtractor', () => {
         vlm.baseIntervalMs = 0;
         sp.set('memory.today', { 'Test': 30 });
 
-        await vlm.maybeExtract('Test', 'base64data');
-        assert.ok(lp.getForTitle('Test', 'vlm').summary.includes('old keywords'));
+        await vlm.maybeExtract('Test', 'base64data', '');
+        assert.ok(vlm.situationMap['Test'].situation.includes('Old'));
 
         vlm._extracting = false;
         vlm._lastExtractTime = {};
         vlm._intervals = {};
-        // Clear stored VLM so RAG high-confidence check doesn't skip
-        lp.clearForTitle('Test');
 
-        await vlm.maybeExtract('Test', 'base64data');
-        const second = lp.getForTitle('Test', 'vlm');
-        assert.ok(second.summary.includes('new keywords'));
-        assert.ok(!second.summary.includes('old keywords'));
-        assert.strictEqual(second.updateCount, 1);
+        await vlm.maybeExtract('Test', 'base64data', '');
+        assert.ok(vlm.situationMap['Test'].situation.includes('New'));
+        assert.ok(!vlm.situationMap['Test'].situation.includes('Old'));
     });
 
-    it('_parseResult splits keywords and enrichedTitle', () => {
-        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
-        const result = vlm._parseResult('react, hooks, state | React Hooks Guide');
-        assert.strictEqual(result.keywords, 'react, hooks, state');
-        assert.strictEqual(result.enrichedTitle, 'React Hooks Guide');
+    it('getSituation returns from short-term map', () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const vlm = new VLMExtractor(sp, lp, null);
+        vlm.situationMap['Test'] = { situation: 'test situation', timestamp: Date.now(), focusSec: 10 };
+        assert.strictEqual(vlm.getSituation('Test'), 'test situation');
     });
 
-    it('_parseResult handles no pipe separator', () => {
-        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
-        const result = vlm._parseResult('just keywords here');
-        assert.strictEqual(result.keywords, 'just keywords here');
-        assert.strictEqual(result.enrichedTitle, '');
+    it('getSituation falls back to long-term', () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const vlm = new VLMExtractor(sp, lp, null);
+        lp.setForTitle('Persisted', 'vlm', { situation: 'persisted situation', lastUpdated: Date.now() });
+        assert.strictEqual(vlm.getSituation('Persisted'), 'persisted situation');
+    });
+
+    it('promotes to long-term when focus exceeds threshold', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const mockAI = { callAPI: async () => 'Promoted situation' };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        vlm.promotionThreshold = 100;
+        sp.set('memory.today', { 'Frequent App': 150 });
+        await vlm.maybeExtract('Frequent App', 'base64data', '');
+        const persisted = lp.getForTitle('Frequent App', 'vlm');
+        assert.ok(persisted);
+        assert.ok(persisted.promoted);
+        assert.ok(persisted.situation.includes('Promoted'));
+    });
+
+    it('evicts oldest when over maxSituations', () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const vlm = new VLMExtractor(sp, lp, null);
+        vlm.maxSituations = 3;
+        for (let i = 0; i < 5; i++) {
+            vlm.situationMap[`title${i}`] = { situation: `s${i}`, timestamp: Date.now() - (5 - i) * 1000, focusSec: 10 };
+        }
+        vlm._evictShortTerm();
+        assert.strictEqual(Object.keys(vlm.situationMap).length, 3);
+        // Oldest (title0, title1) should be evicted
+        assert.strictEqual(vlm.situationMap['title0'], undefined);
+        assert.strictEqual(vlm.situationMap['title1'], undefined);
+        assert.ok(vlm.situationMap['title4']);
     });
 
     it('resetInterval clears tracking', () => {

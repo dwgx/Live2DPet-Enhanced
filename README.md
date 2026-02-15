@@ -229,6 +229,9 @@ npm test
 - 新增单元测试：config-manager / crypto-utils / validators（42 个测试）
 - 设置页 TTS 保存优化：仅发送 tts 配置段，避免触发模型热重载
 - 架构图更新，反映模块化结构
+- 增强系统 VLM 重构：多段上下文拼接改为单一情景压缩缓冲，VLM 作为唯一压缩点
+- 新增 situationMap 短期缓存（LRU 淘汰）+ 长期持久化晋升机制
+- 空闲提示词简化，不再提及截图/窗口标题等实现细节
 
 <details>
 <summary>早期版本</summary>
