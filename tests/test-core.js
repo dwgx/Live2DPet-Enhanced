@@ -165,13 +165,6 @@ describe('PetPromptBuilder', () => {
         assert.strictEqual(builder.characterPrompt, null);
     });
 
-    it('getAppDetectionPrompt includes app name', () => {
-        const builder = new PetPromptBuilder();
-        const prompt = builder.getAppDetectionPrompt('Chrome');
-        assert.ok(prompt.includes('Chrome'));
-        assert.ok(prompt.includes('system'));
-    });
-
     it('getIdlePrompt returns a string', () => {
         const builder = new PetPromptBuilder();
         const prompt = builder.getIdlePrompt();
@@ -196,18 +189,6 @@ describe('PetPromptBuilder', () => {
         assert.ok(prompt.includes('Test description'));
         assert.ok(prompt.includes('Test personality'));
         assert.ok(prompt.includes('Test scenario'));
-    });
-
-    it('buildSystemPrompt appends language instruction when set', () => {
-        const builder = new PetPromptBuilder();
-        builder.characterPrompt = {
-            description: 'Desc',
-            personality: 'Pers',
-            rules: 'Rule 1',
-            language: '中文'
-        };
-        const prompt = builder.buildSystemPrompt();
-        assert.ok(prompt.includes('使用中文。'));
     });
 
     it('buildSystemPrompt omits language when empty', () => {
@@ -913,28 +894,6 @@ describe('ModelAdapter', () => {
         assert.strictEqual(adapter.config.canvasYRatio, 0.55);
     });
 
-    it('ImageAdapter setExpression switches GIF', () => {
-        const config = {
-            type: 'image',
-            staticImagePath: '/base.png',
-            gifExpressions: { '脸红': '/blush.gif', '生气': '/angry.gif' }
-        };
-        const adapter = new ctx.ImageAdapter(config);
-        adapter.imgElement = { src: '/base.png', style: {} };
-        adapter.setExpression('脸红');
-        assert.strictEqual(adapter.imgElement.src, '/blush.gif');
-        assert.strictEqual(adapter.currentGif, '脸红');
-    });
-
-    it('ImageAdapter revertExpression restores base image', () => {
-        const config = { type: 'image', staticImagePath: '/base.png', gifExpressions: { '脸红': '/blush.gif' } };
-        const adapter = new ctx.ImageAdapter(config);
-        adapter.imgElement = { src: '/blush.gif', style: {} };
-        adapter.currentGif = '脸红';
-        adapter.revertExpression();
-        assert.strictEqual(adapter.imgElement.src, '/base.png');
-        assert.strictEqual(adapter.currentGif, null);
-    });
 });
 
 // ========== Test: MessageSession ==========

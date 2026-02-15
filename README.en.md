@@ -135,9 +135,20 @@ The character automatically switches to "talking" images when the AI speaks, emo
 
 ```
 Electron Main Process
-├── main.js                 Window management / IPC / Screenshots / Config
-├── tts-service.js          VOICEVOX Core FFI (koffi)
-└── translation-service.js  CN→JP LLM translation + LRU cache
+├── main.js                 App lifecycle orchestrator, module registration
+├── src/main/               Main process modules (extracted from main.js)
+│   ├── app-context.js      Shared mutable state
+│   ├── config-manager.js   Config persistence / migration / encryption
+│   ├── crypto-utils.js     AES-256-GCM API key encryption
+│   ├── validators.js       Input validation (UUID / URL / path traversal)
+│   ├── window-manager.js   Window creation / control / chat bubble
+│   ├── character-manager.js Character card CRUD / import-export
+│   ├── tts-ipc.js          TTS synthesis / VOICEVOX setup
+│   ├── model-import.js     Model scanning / parameter mapping
+│   └── ...                 emotion / enhance / screen / tray / i18n
+├── src/core/
+│   ├── tts-service.js      VOICEVOX Core FFI (koffi)
+│   └── translation-service.js  CN→JP LLM translation + LRU cache
 
 Renderer (3 windows)
 ├── Settings Window         index.html + settings-ui.js
@@ -169,7 +180,7 @@ Core Modules (renderer)
 <summary>Testing</summary>
 
 ```bash
-node tests/test-core.js
+npm test
 ```
 
 </details>
@@ -208,6 +219,19 @@ Please record the log output when the issue occurs and include it when submittin
 </details>
 
 ## Changelog
+
+### v1.9.0 — Main Process Modular Refactor
+
+- Split main.js (1665 lines) into 15 independent modules (`src/main/`) with clear responsibilities
+- New AppContext shared state management with dependency injection pattern
+- New AES-256-GCM API key encryption at rest (`crypto-utils.js`), backward compatible with plaintext
+- New input validation module (`validators.js`): UUID / URL / path traversal protection
+- New unit tests: config-manager / crypto-utils / validators (42 tests)
+- Settings page TTS save optimization: only sends tts config section, avoids triggering model hot-reload
+- Architecture diagram updated to reflect modular structure
+
+<details>
+<summary>Earlier Versions</summary>
 
 ### v1.8.0 — Enhancement System
 
@@ -306,6 +330,8 @@ Please record the log output when the issue occurs and include it when submittin
 
 </details>
 
+</details>
+
 ## License
 
 MIT — See [LICENSE](LICENSE).
@@ -314,7 +340,7 @@ MIT — See [LICENSE](LICENSE).
 
 - **Live2D Models**: No default model is included due to copyright — redistributable model contributions are welcome
 - **App Icon**: Currently using a developer avatar as placeholder — design submissions welcome
-- **Built-in Character Cards**: Fun character card submissions are welcome! Built-in cards must include zh/en/ja trilingual versions. To submit, modify `assets/prompts/<uuid>.json` (with `i18n` field) and `ensureDefaultCharacters()` in `main.js`. See existing built-in cards for format reference
+- **Built-in Character Cards**: Fun character card submissions are welcome! Built-in cards must include zh/en/ja trilingual versions. To submit, modify `assets/prompts/<uuid>.json` (with `i18n` field) and `ensureDefaultCharacters()` in `src/main/character-manager.js`. See existing built-in cards for format reference
 
 <details>
 <summary>Built-in Character Cards</summary>

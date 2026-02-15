@@ -1028,17 +1028,18 @@ document.getElementById('btn-save-tts').addEventListener('click', async () => {
         volumeScale: parseFloat(document.getElementById('tts-volume').value)
     };
     await window.electronAPI.ttsSetConfig(ttsConfig);
-    // Save audio mode to config
+    // Save audio mode to config (only send tts section to avoid triggering model reload)
     const audioMode = document.querySelector('input[name="audio-mode"]:checked')?.value || 'tts';
-    const fullConfig = await window.electronAPI.loadConfig();
-    fullConfig.tts = fullConfig.tts || {};
-    fullConfig.tts.audioMode = audioMode;
-    fullConfig.tts.styleId = ttsConfig.styleId;
-    fullConfig.tts.speedScale = ttsConfig.speedScale;
-    fullConfig.tts.pitchScale = ttsConfig.pitchScale;
-    fullConfig.tts.volumeScale = ttsConfig.volumeScale;
-    fullConfig.tts.gpuMode = document.getElementById('tts-gpu-mode')?.checked || false;
-    await window.electronAPI.saveConfig(fullConfig);
+    await window.electronAPI.saveConfig({
+        tts: {
+            audioMode,
+            styleId: ttsConfig.styleId,
+            speedScale: ttsConfig.speedScale,
+            pitchScale: ttsConfig.pitchScale,
+            volumeScale: ttsConfig.volumeScale,
+            gpuMode: document.getElementById('tts-gpu-mode')?.checked || false
+        }
+    });
     showStatus('tts-save-status', t('status.saved'), 'success');
 });
 
@@ -1197,12 +1198,10 @@ async function loadVvmConfig() {
             if (result.success) {
                 // Auto-add downloaded VVM to config and restart TTS
                 const config = await window.electronAPI.loadConfig();
-                config.tts = config.tts || {};
-                const vvmFiles = config.tts.vvmFiles || ['0.vvm'];
+                const vvmFiles = config.tts?.vvmFiles || ['0.vvm'];
                 if (!vvmFiles.includes(vvm)) {
                     vvmFiles.push(vvm);
-                    config.tts.vvmFiles = vvmFiles;
-                    await window.electronAPI.saveConfig(config);
+                    await window.electronAPI.saveConfig({ tts: { vvmFiles } });
                 }
                 await loadVvmConfig();
                 await window.electronAPI.ttsRestart();
@@ -1222,10 +1221,8 @@ document.getElementById('btn-save-vvm')?.addEventListener('click', async () => {
         showStatus('vvm-save-status', t('tts.vvm.selectOne'), 'error');
         return;
     }
-    const config = await window.electronAPI.loadConfig();
-    config.tts = config.tts || {};
-    config.tts.vvmFiles = vvmFiles;
-    await window.electronAPI.saveConfig(config);
+    // Only save changed vvm list, not the full config
+    await window.electronAPI.saveConfig({ tts: { vvmFiles } });
     // Relaunch app to apply VVM changes
     await window.electronAPI.appRelaunch();
 });
