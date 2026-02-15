@@ -148,7 +148,15 @@ Electron Main Process
 │   └── ...                 emotion / enhance / screen / tray / i18n
 ├── src/core/
 │   ├── tts-service.js      VOICEVOX Core FFI (koffi)
-│   └── translation-service.js  中→日 LLM 翻訳 + LRU キャッシュ
+│   ├── translation-service.js  中→日 LLM 翻訳 + LRU キャッシュ
+│   └── enhance/            拡張サブシステム
+│       ├── enhancement-orchestrator.js  オーケストレータ: VLM / 検索 / 知識 / 記憶
+│       ├── vlm-extractor.js    スクリーンショット状況圧縮 (situationMap + 長期プロモーション)
+│       ├── context-pool.js     短期プール + 長期プール (Jaccard RAG)
+│       ├── knowledge-store.js  LLM 知識要約
+│       ├── knowledge-acquisition.js  自動知識取得
+│       ├── search-service.js   Web 検索 IPC
+│       └── memory-tracker.js   アクティビティ記憶追跡
 
 Renderer (3 windows)
 ├── Settings Window         index.html + settings-ui.js

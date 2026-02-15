@@ -148,7 +148,15 @@ Electron Main Process
 │   └── ...                 emotion / enhance / screen / tray / i18n
 ├── src/core/
 │   ├── tts-service.js      VOICEVOX Core FFI (koffi)
-│   └── translation-service.js  CN→JP LLM translation + LRU cache
+│   ├── translation-service.js  CN→JP LLM translation + LRU cache
+│   └── enhance/            Enhancement subsystem
+│       ├── enhancement-orchestrator.js  Orchestrator: VLM / search / knowledge / memory
+│       ├── vlm-extractor.js    Screenshot situation compression (situationMap + long-term promotion)
+│       ├── context-pool.js     Short-term pool + Long-term pool (Jaccard RAG)
+│       ├── knowledge-store.js  LLM knowledge summarization
+│       ├── knowledge-acquisition.js  Auto knowledge acquisition
+│       ├── search-service.js   Web search IPC
+│       └── memory-tracker.js   Activity memory tracking
 
 Renderer (3 windows)
 ├── Settings Window         index.html + settings-ui.js
