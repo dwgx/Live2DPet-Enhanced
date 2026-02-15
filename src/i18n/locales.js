@@ -187,6 +187,8 @@ const I18N = {
     'sys.relatedInfo': 'Related Info',
     'sys.knowledge': 'Knowledge',
     'sys.screenContent': 'Screen Content',
+    'sys.secsAgo': 's ago',
+    'sys.minsAgo': 'min ago',
     // Main process strings
     'main.size': 'Size', 'main.settings': 'Settings', 'main.close': 'Close',
     'main.selectL2d': 'Select Live2D Model Folder',
@@ -401,6 +403,8 @@ const I18N = {
     'sys.relatedInfo': '相关信息',
     'sys.knowledge': '知识',
     'sys.screenContent': '屏幕内容',
+    'sys.secsAgo': '秒前',
+    'sys.minsAgo': '分钟前',
     // Main process strings
     'main.size': '大小', 'main.settings': '设置', 'main.close': '关闭',
     'main.selectL2d': '选择 Live2D 模型文件夹',
@@ -615,6 +619,8 @@ const I18N = {
     'sys.relatedInfo': '関連情報',
     'sys.knowledge': '知識',
     'sys.screenContent': '画面内容',
+    'sys.secsAgo': '秒前',
+    'sys.minsAgo': '分前',
     // Main process strings
     'main.size': 'サイズ', 'main.settings': '設定', 'main.close': '閉じる',
     'main.selectL2d': 'Live2D モデルフォルダを選択',

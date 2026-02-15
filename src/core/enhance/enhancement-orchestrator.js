@@ -167,12 +167,26 @@ class EnhancementOrchestrator {
 
     /**
      * Build enhanced context for main AI — single situation buffer.
-     * No more multi-section assembly. Just the VLM-compressed situation.
+     * Focus-based switching: if current window has low focus, keep previous situation.
+     * Includes relative timestamp so AI knows freshness.
      */
     buildEnhancedContext(title) {
-        const situation = this.vlmExtractor.getSituation(title);
-        if (!situation) return '';
-        return sanitizeSecrets('\n[' + enhanceT('sys.screenContent') + '] ' + situation);
+        const focusTime = this.shortPool.get('memory.today')?.[title] || 0;
+        let meta = this.vlmExtractor.getSituationMeta(title);
+
+        // Low focus on current window — fall back to most recent valid situation
+        if (!meta && focusTime < this._minFocusSeconds) {
+            const recent = this.vlmExtractor.getMostRecent();
+            if (recent) meta = recent;
+        }
+
+        if (!meta) return '';
+
+        const ageSec = Math.round((Date.now() - meta.timestamp) / 1000);
+        const ageStr = ageSec < 60 ? `${ageSec}${enhanceT('sys.secsAgo')}`
+            : `${Math.round(ageSec / 60)}${enhanceT('sys.minsAgo')}`;
+        const label = enhanceT('sys.screenContent');
+        return sanitizeSecrets(`\n[${label} (${ageStr})] ${meta.situation}`);
     }
 
     async stop() {

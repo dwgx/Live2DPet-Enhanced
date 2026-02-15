@@ -529,15 +529,30 @@ describe('EnhancementOrchestrator', () => {
         assert.strictEqual(ctx, '');
     });
 
-    it('buildEnhancedContext returns situation from VLM buffer', () => {
+    it('buildEnhancedContext returns situation from VLM buffer with timestamp', () => {
         const eo = new EnhancementOrchestrator(null);
         eo.vlmExtractor.situationMap['React Tutorial'] = {
             situation: 'User is reading React hooks documentation',
-            timestamp: Date.now(),
+            timestamp: Date.now() - 15000,
             focusSec: 30
         };
         const ctx = eo.buildEnhancedContext('React Tutorial');
         assert.ok(ctx.includes('React hooks documentation'));
+        // Should contain relative time
+        assert.ok(ctx.includes('15'));
+    });
+
+    it('buildEnhancedContext falls back to most recent when low focus', () => {
+        const eo = new EnhancementOrchestrator(null);
+        // No situation for 'Notification', but VSCode has one
+        eo.vlmExtractor.situationMap['VSCode'] = {
+            situation: 'User is editing main.js',
+            timestamp: Date.now() - 5000,
+            focusSec: 60
+        };
+        // 'Notification' has 0 focus and no situation → should fall back
+        const ctx = eo.buildEnhancedContext('Notification');
+        assert.ok(ctx.includes('editing main.js'));
     });
 
     it('buildEnhancedContext returns empty when no VLM situation', () => {
@@ -688,6 +703,39 @@ describe('VLMExtractor', () => {
         const vlm = new VLMExtractor(sp, lp, null);
         lp.setForTitle('Persisted', 'vlm', { situation: 'persisted situation', lastUpdated: Date.now() });
         assert.strictEqual(vlm.getSituation('Persisted'), 'persisted situation');
+    });
+
+    it('getSituationMeta returns entry with timestamp', () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const vlm = new VLMExtractor(sp, lp, null);
+        const ts = Date.now() - 5000;
+        vlm.situationMap['Test'] = { situation: 'test', timestamp: ts, focusSec: 10 };
+        const meta = vlm.getSituationMeta('Test');
+        assert.strictEqual(meta.situation, 'test');
+        assert.strictEqual(meta.timestamp, ts);
+    });
+
+    it('getSituationMeta falls back to long-term', () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const vlm = new VLMExtractor(sp, lp, null);
+        const ts = Date.now() - 10000;
+        lp.setForTitle('Persisted', 'vlm', { situation: 'persisted', lastUpdated: ts });
+        const meta = vlm.getSituationMeta('Persisted');
+        assert.strictEqual(meta.situation, 'persisted');
+        assert.strictEqual(meta.timestamp, ts);
+    });
+
+    it('getMostRecent returns latest entry', () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const vlm = new VLMExtractor(sp, lp, null);
+        vlm.situationMap['Old'] = { situation: 'old', timestamp: Date.now() - 10000, focusSec: 10 };
+        vlm.situationMap['New'] = { situation: 'new', timestamp: Date.now(), focusSec: 20 };
+        const recent = vlm.getMostRecent();
+        assert.strictEqual(recent.title, 'New');
+        assert.strictEqual(recent.situation, 'new');
     });
 
     it('promotes to long-term when focus exceeds threshold', async () => {

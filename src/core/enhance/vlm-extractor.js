@@ -54,6 +54,34 @@ class VLMExtractor {
     }
 
     /**
+     * Get situation with metadata (timestamp) for a title.
+     * @returns {{ situation: string, timestamp: number, focusSec: number }|null}
+     */
+    getSituationMeta(title) {
+        const entry = this.situationMap[title];
+        if (entry) return entry;
+        const persisted = this.longPool.getForTitle(title, 'vlm');
+        if (persisted?.situation) {
+            return { situation: persisted.situation, timestamp: persisted.lastUpdated || 0, focusSec: 0 };
+        }
+        return null;
+    }
+
+    /**
+     * Get the most recently updated situation across all titles.
+     * @returns {{ title: string, situation: string, timestamp: number }|null}
+     */
+    getMostRecent() {
+        let best = null;
+        for (const [title, entry] of Object.entries(this.situationMap)) {
+            if (!best || entry.timestamp > best.timestamp) {
+                best = { title, situation: entry.situation, timestamp: entry.timestamp };
+            }
+        }
+        return best;
+    }
+
+    /**
      * Main entry — called by orchestrator with long-term context
      * @param {string} title - current focused window title
      * @param {string|null} screenshotBase64 - latest screenshot
