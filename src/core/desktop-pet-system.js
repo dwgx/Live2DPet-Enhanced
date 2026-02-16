@@ -210,7 +210,50 @@ class DesktopPetSystem {
             parts.push(this._t('sys.windowUsage') + focusEntries);
         }
 
+        // Anti-repetition: detect repeated patterns in recent assistant responses
+        const recentAssistant = this.conversationHistory
+            .filter(m => m.role === 'assistant')
+            .slice(-3)
+            .map(m => m.content);
+        if (recentAssistant.length >= 2) {
+            const hint = this._detectRepetition(recentAssistant);
+            if (hint) parts.push(hint);
+        }
+
         return parts.join('\n');
+    }
+
+    /**
+     * Detect repeated sentence patterns in recent responses.
+     * Returns a hint string if repetition is found, or empty string.
+     */
+    _detectRepetition(responses) {
+        if (responses.length < 2) return '';
+        const patterns = [];
+
+        // Check for repeated question marks (rhetorical questions)
+        const questionCount = responses.filter(r => r.includes('？') || r.includes('?')).length;
+        if (questionCount >= 2) patterns.push(this._t('sys.patternQuestion'));
+
+        // Check for repeated opening words (first 2 chars)
+        const openings = responses.map(r => r.slice(0, 2));
+        if (openings.length >= 2 && new Set(openings).size === 1) {
+            patterns.push(this._t('sys.patternOpening'));
+        }
+
+        // Check for repeated sentence-ending patterns (last 4 chars before punctuation)
+        const endings = responses.map(r => {
+            const clean = r.replace(/[。！？…\s]+$/, '');
+            return clean.slice(-4);
+        });
+        if (endings.length >= 2 && new Set(endings).size === 1) {
+            patterns.push(this._t('sys.patternEnding'));
+        }
+
+        if (patterns.length > 0) {
+            return this._t('sys.antiRepetition').replace('{0}', patterns.join('、'));
+        }
+        return '';
     }
 
     // ========== Main Tick & Request ==========
@@ -455,7 +498,10 @@ class DesktopPetSystem {
             const textPrompt = this.promptBuilder.getAppDetectionPrompt(this._shortenTitle(appName, 50) + boundsInfo);
 
             // Gather screenshots: fresh capture + older ones from VLM mipmap for temporal spread
+            // When VLM is active with a valid situation, limit to 2 screenshots (fresh + 1 older)
             const screenshots = [];
+            const vlmHasSituation = this.enhancer?.vlmExtractor?.getSituation(appName);
+            const maxScreenshots = vlmHasSituation ? 2 : 3;
             if (window.electronAPI?.getScreenCapture) {
                 try {
                     const fresh = await window.electronAPI.getScreenCapture();
@@ -468,7 +514,7 @@ class DesktopPetSystem {
                 for (const entry of older) {
                     // Skip if same as fresh capture (L0 latest ≈ fresh)
                     if (screenshots.length > 0 && entry.base64 === screenshots[0].base64) continue;
-                    if (screenshots.length < 3) screenshots.push(entry);
+                    if (screenshots.length < maxScreenshots) screenshots.push(entry);
                 }
             }
 

@@ -267,11 +267,17 @@ class EnhancementOrchestrator {
             ctx = `\n[${label} (${ageStr})] ${meta.situation}`;
         }
 
-        // Append situation history for continuity (deduplicated, truncated, max 30min)
+        // Append situation history for continuity (deduplicated by title, truncated, max 30min)
         const history = this.vlmExtractor.getRecentHistory(2);
+        const seenTitles = new Set();
         const historyLines = history
             .filter(h => {
                 if (h.situation === meta.situation) return false;
+                // Deduplicate by title — only keep the most recent entry per title
+                if (seenTitles.has(h.title)) return false;
+                seenTitles.add(h.title);
+                // Skip entries with the same title as the current situation
+                if (h.title === (typeof compactTitle !== 'undefined' ? compactTitle(title, 30) : title.slice(0, 30))) return false;
                 const hAge = Math.round((Date.now() - h.timestamp) / 1000);
                 return hAge <= 1800; // drop stale history too
             })

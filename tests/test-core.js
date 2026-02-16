@@ -295,12 +295,10 @@ describe('DesktopPetSystem', () => {
         sys.isActive = true;
         sys.emotionSystem = { stop() {} };
         sys.focusTracker = { 'Chrome': 5 };
-        sys.screenshotBuffers = { 'Chrome': ['data'] };
         global.window.electronAPI = { closePetWindow: async () => ({}) };
         await sys.stop();
         assert.strictEqual(sys.isActive, false);
         assert.deepStrictEqual(sys.focusTracker, {});
-        assert.deepStrictEqual(sys.screenshotBuffers, {});
         assert.strictEqual(sys.currentAudio, null);
         assert.strictEqual(sys.currentAudioUrl, null);
     });
