@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Load max_tokens multiplier
         loadTokenMultiplierUI(fileConfig.maxTokensMultiplier || 1.0);
         // Load enhance config
-        loadEnhanceUI(fileConfig.enhance || {});
+        loadEnhanceToggle(fileConfig.enhance || {});
         // Reload prompt with correct language (after language is set)
         await reloadPetPrompt();
     }
@@ -765,6 +765,12 @@ function fillPromptFields(data) {
     document.getElementById('prompt-scenario').value = data.scenario || '';
     document.getElementById('prompt-rules').value = data.rules || '';
     document.getElementById('prompt-language').value = data.language || '';
+    const ha = data.hitActions || {};
+    document.getElementById('prompt-hit-click').value = ha.click || '';
+    document.getElementById('prompt-hit-touch').value = ha.touch || '';
+    document.getElementById('prompt-hit-drag').value = ha.drag || '';
+    document.getElementById('prompt-hit-swipe').value = ha.swipe || '';
+    document.getElementById('prompt-hit-resize').value = ha.resize || '';
 }
 
 async function loadCharacterList() {
@@ -912,7 +918,14 @@ document.getElementById('btn-save-prompt').addEventListener('click', async () =>
         personality: document.getElementById('prompt-personality').value,
         scenario: document.getElementById('prompt-scenario').value,
         rules: document.getElementById('prompt-rules').value,
-        language: document.getElementById('prompt-language').value
+        language: document.getElementById('prompt-language').value,
+        hitActions: {
+            click: document.getElementById('prompt-hit-click').value.trim(),
+            touch: document.getElementById('prompt-hit-touch').value.trim(),
+            drag: document.getElementById('prompt-hit-drag').value.trim(),
+            swipe: document.getElementById('prompt-hit-swipe').value.trim(),
+            resize: document.getElementById('prompt-hit-resize').value.trim()
+        }
     };
     const result = await window.electronAPI.savePrompt(currentCharacterId, promptData);
     if (result.success) {
@@ -1265,107 +1278,13 @@ document.querySelectorAll('.token-mult-btn').forEach(btn => {
     });
 });
 
-// ========== Enhance Tab ==========
+// ========== Enhance Master Toggle ==========
 
-function loadEnhanceUI(enhance) {
-    const mem = enhance.memory || {};
-    const search = enhance.search || {};
-    const knowledge = enhance.knowledge || {};
-
-    document.getElementById('enhance-memory-enabled').checked = mem.enabled !== false;
-    document.getElementById('enhance-memory-retention').value = mem.retentionDays || 30;
-    document.getElementById('enhance-search-enabled').checked = search.enabled || false;
-    document.getElementById('enhance-search-provider').value = search.provider || 'custom';
-    document.getElementById('enhance-search-custom-url').value = search.customUrl || '';
-    document.getElementById('enhance-search-custom-key').value = search.customApiKey || '';
-    document.getElementById('enhance-search-custom-headers').value = search.customHeaders ? JSON.stringify(search.customHeaders) : '';
-    document.getElementById('enhance-search-frequency').value = Math.round((search.maxFrequencyMs || 30000) / 1000);
-    document.getElementById('enhance-knowledge-enabled').checked = knowledge.enabled || false;
-
-    const vlm = enhance.vlm || {};
-    document.getElementById('enhance-vlm-enabled').checked = vlm.enabled || false;
-
-    const kbAcq = enhance.knowledgeAcq || {};
-    document.getElementById('enhance-kbacq-enabled').checked = kbAcq.enabled || false;
-
-    toggleCustomSearchConfig();
-    checkEnhanceDependencies();
+function loadEnhanceToggle(enhance) {
+    document.getElementById('enhance-enabled').checked = enhance.enabled || false;
 }
 
-function toggleCustomSearchConfig() {
-    const provider = document.getElementById('enhance-search-provider').value;
-    document.getElementById('custom-search-config').style.display = provider === 'custom' ? '' : 'none';
-}
-
-document.getElementById('enhance-search-provider').addEventListener('change', toggleCustomSearchConfig);
-
-function checkEnhanceDependencies() {
-    const searchEnabled = document.getElementById('enhance-search-enabled').checked;
-    const vlmEnabled = document.getElementById('enhance-vlm-enabled').checked;
-    const kbAcqEnabled = document.getElementById('enhance-kbacq-enabled').checked;
-    const knowledgeEnabled = document.getElementById('enhance-knowledge-enabled').checked;
-
-    const kbAcqWarn = document.getElementById('enhance-kbacq-dep-warn');
-    if (kbAcqWarn) {
-        if (kbAcqEnabled && (!searchEnabled || !vlmEnabled)) {
-            kbAcqWarn.textContent = t('enhance.kbAcq.depWarn');
-            kbAcqWarn.style.display = '';
-        } else {
-            kbAcqWarn.style.display = 'none';
-        }
-    }
-
-    const knowledgeWarn = document.getElementById('enhance-knowledge-dep-warn');
-    if (knowledgeWarn) {
-        if (knowledgeEnabled && !searchEnabled) {
-            knowledgeWarn.textContent = t('enhance.knowledge.depWarn');
-            knowledgeWarn.style.display = '';
-        } else {
-            knowledgeWarn.style.display = 'none';
-        }
-    }
-}
-
-['enhance-search-enabled', 'enhance-vlm-enabled', 'enhance-kbacq-enabled', 'enhance-knowledge-enabled'].forEach(id => {
-    document.getElementById(id)?.addEventListener('change', checkEnhanceDependencies);
-});
-
-document.getElementById('btn-save-enhance').addEventListener('click', async () => {
-    // Validate customHeaders JSON before saving
-    const headersVal = document.getElementById('enhance-search-custom-headers').value.trim();
-    let customHeaders = null;
-    if (headersVal) {
-        try { customHeaders = JSON.parse(headersVal); }
-        catch { showStatus('enhance-status', t('enhance.search.invalidHeaders'), 'error'); return; }
-    }
-
-    const enhance = {
-        memory: {
-            enabled: document.getElementById('enhance-memory-enabled').checked,
-            retentionDays: parseInt(document.getElementById('enhance-memory-retention').value) || 30
-        },
-        search: {
-            enabled: document.getElementById('enhance-search-enabled').checked,
-            provider: document.getElementById('enhance-search-provider').value,
-            customUrl: document.getElementById('enhance-search-custom-url').value.trim(),
-            customApiKey: document.getElementById('enhance-search-custom-key').value.trim(),
-            customHeaders: customHeaders,
-            maxFrequencyMs: parseInt(document.getElementById('enhance-search-frequency').value) * 1000 || 30000,
-            minFocusSeconds: 10
-        },
-        knowledge: {
-            enabled: document.getElementById('enhance-knowledge-enabled').checked
-        },
-        vlm: {
-            enabled: document.getElementById('enhance-vlm-enabled').checked
-        },
-        knowledgeAcq: {
-            enabled: document.getElementById('enhance-kbacq-enabled').checked
-        }
-    };
-    await window.electronAPI.saveConfig({ enhance });
-    if (petSystem && petSystem.enhancer) {
-        await petSystem.enhancer.reloadConfig();
-    }
-    showStatus('enhance-status', t('status.saved'), 'success');
+document.getElementById('enhance-enabled').addEventListener('change', async () => {
+    const enabled = document.getElementById('enhance-enabled').checked;
+    await window.electronAPI.saveConfig({ enhance: { enabled } });
 });

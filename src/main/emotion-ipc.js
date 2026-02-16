@@ -54,11 +54,27 @@ function registerEmotionIPC(ctx, ipcMain) {
         }
     });
 
-    ipcMain.handle('set-talking-state', async (event, isTalking) => {
-        if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
-            ctx.petWindow.webContents.send('talking-state-changed', isTalking);
+    // Hit interaction — forwarded to settings window (renderer picks it up)
+    ipcMain.handle('report-hit', async (event, data) => {
+        try {
+            if (ctx.settingsWindow && !ctx.settingsWindow.isDestroyed()) {
+                ctx.settingsWindow.webContents.send('pet-hit', data);
+            }
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
         }
-        return { success: true };
+    });
+
+    ipcMain.handle('set-talking-state', async (event, isTalking) => {
+        try {
+            if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
+                ctx.petWindow.webContents.send('talking-state-changed', isTalking);
+            }
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
     });
 }
 

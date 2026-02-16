@@ -19,6 +19,7 @@
         }
         #live2d-canvas {
             position: absolute; top: 0; left: 0;
+            -webkit-app-region: no-drag;
         }
         #static-image {
             position: absolute;
@@ -27,6 +28,7 @@
             height: auto;
             transform-origin: top center;
             display: none;
+            -webkit-app-region: no-drag;
         }
         #placeholder {
             max-width: 80%; max-height: 80%;
@@ -122,8 +124,10 @@
         }
 
         // ========== Mouse Tracking ==========
+        let _mouseTrackingId = null;
         function startMouseTracking() {
-            setInterval(async () => {
+            if (_mouseTrackingId) clearInterval(_mouseTrackingId);
+            _mouseTrackingId = setInterval(async () => {
                 if (!window.electronAPI) return;
                 try {
                     const cursor = await window.electronAPI.getCursorPosition();
@@ -159,6 +163,7 @@
             const size = sizePresets[currentSizeIndex];
             if (window.electronAPI) window.electronAPI.setWindowSize(size, size);
             updateSizeBtns();
+            reportInteraction('resize', 'body', 0, { size });
         });
 
         document.getElementById('btn-bigger').addEventListener('click', () => {
@@ -167,6 +172,7 @@
             const size = sizePresets[currentSizeIndex];
             if (window.electronAPI) window.electronAPI.setWindowSize(size, size);
             updateSizeBtns();
+            reportInteraction('resize', 'body', 0, { size });
         });
 
         document.getElementById('btn-settings').addEventListener('click', () => {
@@ -258,6 +264,99 @@
                 window.electronAPI.reportHoverState(false);
             }
         });
+
+        // ========== Interaction Reporting (shared) ==========
+        function reportInteraction(type, area, durationMs, extra) {
+            console.log(`[DesktopPet] ${type}: area=${area} duration=${durationMs}ms`);
+            if (window.electronAPI?.reportHit) {
+                window.electronAPI.reportHit({ type, area, durationMs, timestamp: Date.now(), ...extra });
+            }
+        }
+
+        // ========== Hit Detection + Custom Drag ==========
+        // Canvas/image are no-drag; we handle click vs drag manually.
+        // Uses screenX/screenY (absolute) to avoid jitter from window movement.
+        // On every drag frame, setBounds locks both position AND size to prevent OS resize.
+        (function() {
+            let downX = 0, downY = 0, downTime = 0, isDragging = false;
+            let winX = 0, winY = 0, winW = 0, winH = 0, boundsReady = false;
+            const CLICK_THRESHOLD_MS = 300;
+            const CLICK_THRESHOLD_PX = 8;
+
+            const SWIPE_COOLDOWN_MS = 3000;
+            let lastSwipeTime = 0;
+
+            const targets = ['live2d-canvas', 'static-image'];
+            for (const id of targets) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+
+                el.addEventListener('pointerenter', () => {
+                    if (downTime !== 0) return;
+                    const now = Date.now();
+                    if (now - lastSwipeTime < SWIPE_COOLDOWN_MS) return;
+                    lastSwipeTime = now;
+                    reportInteraction('swipe', 'body', 0);
+                });
+
+                el.addEventListener('pointerdown', (e) => {
+                    downX = e.screenX;
+                    downY = e.screenY;
+                    downTime = Date.now();
+                    isDragging = false;
+                    boundsReady = false;
+                    el.setPointerCapture(e.pointerId);
+                    if (window.electronAPI?.getWindowBounds) {
+                        window.electronAPI.getWindowBounds().then(b => {
+                            winX = b.x; winY = b.y; winW = b.width; winH = b.height;
+                            boundsReady = true;
+                        }).catch(() => {});
+                    }
+                });
+
+                el.addEventListener('pointermove', (e) => {
+                    if (downTime === 0) return;
+                    const dx = e.screenX - downX;
+                    const dy = e.screenY - downY;
+                    if (!isDragging && (Math.abs(dx) > CLICK_THRESHOLD_PX || Math.abs(dy) > CLICK_THRESHOLD_PX)) {
+                        isDragging = true;
+                    }
+                    if (isDragging && boundsReady && window.electronAPI?.setWindowPosition) {
+                        window.electronAPI.setWindowPosition(
+                            Math.round(winX + dx), Math.round(winY + dy), winW, winH
+                        );
+                    }
+                });
+
+                el.addEventListener('pointerup', (e) => {
+                    const elapsed = Date.now() - downTime;
+                    const dx = Math.abs(e.screenX - downX);
+                    const dy = Math.abs(e.screenY - downY);
+                    downTime = 0;
+
+                    if (isDragging) {
+                        reportInteraction('drag', 'body', elapsed);
+                    } else if (elapsed < CLICK_THRESHOLD_MS && dx < CLICK_THRESHOLD_PX && dy < CLICK_THRESHOLD_PX) {
+                        const area = getHitArea(e.clientX, e.clientY);
+                        reportInteraction('click', area, elapsed);
+                    } else if (elapsed >= CLICK_THRESHOLD_MS) {
+                        const area = getHitArea(e.clientX, e.clientY);
+                        reportInteraction('touch', area, elapsed);
+                    }
+                    isDragging = false;
+                });
+            }
+
+            function getHitArea(x, y) {
+                if (currentAdapter && currentAdapter.getType() === 'live2d' && currentAdapter.model) {
+                    try {
+                        const areas = currentAdapter.model.hitTest(x, y);
+                        if (areas && areas.length > 0) return areas[0];
+                    } catch(e) { console.warn('[DesktopPet] hitTest error:', e); }
+                }
+                return 'body';
+            }
+        })();
 
         // ========== Init ==========
         initModel();

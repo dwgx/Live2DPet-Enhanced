@@ -6,7 +6,7 @@
 
 > If you find this useful, please consider giving it a [Star](https://github.com/x380kkm/Live2DPet) :)
 
-An Electron-based desktop pet. A Live2D character stays on your desktop, understands what you're doing through screenshots and window awareness, generates companionship dialogue through AI, automatically searches and accumulates relevant knowledge for deeper conversations, and speaks with VOICEVOX text-to-speech. Built with AI-assisted development using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+An Electron-based desktop pet. A Live2D character stays on your desktop, understands what you're doing through screenshots and window awareness, generates companionship dialogue through AI, supports click/drag/touch interactions, uses keyframe visual memory so the AI can review your recent activity, and speaks with VOICEVOX text-to-speech. Built with AI-assisted development using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 > **Privacy Notice**: This app periodically captures screenshots and sends them to your configured AI API for analysis. Screenshots are never saved to disk. Make sure you trust your API provider and be mindful of sensitive information displayed on screen.
 
@@ -124,12 +124,15 @@ The character automatically switches to "talking" images when the AI speaks, emo
 - **Live2D Desktop Character** — Transparent frameless window, always on top, eyes follow cursor
 - **Image Model** — Use an image folder as character, tagged by idle/talking/emotion, AI-driven auto switching
 - **AI Visual Awareness** — Periodic screenshots + active window detection, AI responds to screen content
-- **Smart Enhancement** — Auto-searches relevant knowledge, screen situation analysis, activity memory for deeper conversations
+- **Interaction System** — Click/touch/drag/swipe/resize, interaction events injected into AI context
+- **Keyframe Visual Memory** — Auto-samples screenshots, VLM picks representative keyframes, AI can review recent activity
 - **VOICEVOX Voice** — Local Japanese TTS, auto translation, one-click setup
 - **Emotion System** — AI-driven expression/motion selection with emotion accumulation triggers
 - **Audio State Machine** — TTS → default phrases → silent, three-mode auto fallback
 - **Hot Model Import** — Any Live2D model, auto parameter mapping, auto expression/motion scan
 - **Character Personas** — JSON templates define personality and behavior rules, multi-character support
+
+> **Deprecated**: The smart enhancement text pipeline (auto search, knowledge organization, knowledge acquisition, activity memory, VLM situation extraction) has been suspended in v2.0. Code skeleton preserved.
 
 <details>
 <summary>Architecture</summary>
@@ -151,13 +154,13 @@ Electron Main Process
 │   ├── tts-service.js      VOICEVOX Core FFI (koffi)
 │   ├── translation-service.js  CN→JP LLM translation + LRU cache
 │   └── enhance/            Enhancement subsystem
-│       ├── enhancement-orchestrator.js  Orchestrator: VLM / search / knowledge / memory
-│       ├── vlm-extractor.js    Screenshot situation compression (situationMap + long-term promotion)
-│       ├── context-pool.js     Short-term pool + Long-term pool (Jaccard RAG)
-│       ├── knowledge-store.js  LLM knowledge summarization
-│       ├── knowledge-acquisition.js  Auto knowledge acquisition
-│       ├── search-service.js   Web search IPC
-│       └── memory-tracker.js   Activity memory tracking
+│       ├── enhancement-orchestrator.js  Orchestrator: keyframe visual memory
+│       ├── vlm-extractor.js    Screenshot capture / Mipmap / Keyframe selection
+│       ├── context-pool.js     Short-term pool + Long-term pool (Jaccard RAG) [deprecated]
+│       ├── knowledge-store.js  LLM knowledge summarization [deprecated]
+│       ├── knowledge-acquisition.js  Auto knowledge acquisition [deprecated]
+│       ├── search-service.js   Web search IPC [deprecated]
+│       └── memory-tracker.js   Activity memory tracking [deprecated]
 
 Renderer (3 windows)
 ├── Settings Window         index.html + settings-ui.js
@@ -214,8 +217,6 @@ Please record the log output when the issue occurs and include it when submittin
 
 - Screenshot-related warnings can be safely ignored — they do not affect normal operation
 - VVM voice model read errors: go to `C:\Users\YourUsername\AppData\Roaming\live2dpet\voicevox_core`, find the model folder, delete the corrupted files, and re-download
-- Enhancement modules use `window._enhanceLang` global variable for language passing — implicit coupling (no impact under current single-window architecture)
-- `enhance-data.json` stores all enhance data in a single file; consider splitting by layer or migrating to SQLite in the future
 
 <details>
 <summary>Tech Stack</summary>

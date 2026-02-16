@@ -45,6 +45,17 @@ class VLMExtractor {
         // Situation history for continuity
         this._situationHistory = [];
         this._maxHistory = 5;
+
+        // Keyframe buffer (mid-term visual memory)
+        this._kfCandidates = [];       // candidate ring buffer
+        this._kfSelected = [];          // LLM-selected keyframes
+        this._kfCandidateMax = 20;
+        this._kfSelectedMax = 5;
+        this._kfSampleInterval = 5;     // sample every N capture ticks (=15s at 3s tick)
+        this._kfSampleCounter = 0;
+        this._kfSelectIntervalMs = 120000; // LLM selection every 2 min
+        this._lastKfSelectTime = 0;
+        this._selectingKf = false;
     }
 
     configure(config) {
@@ -55,6 +66,10 @@ class VLMExtractor {
         if (config.promotionThreshold) this.promotionThreshold = config.promotionThreshold;
         if (config.retentionDays) this.retentionDays = config.retentionDays;
         if (config.captureTimerMs) this._captureTimerMs = config.captureTimerMs;
+        if (config.kfSampleInterval) this._kfSampleInterval = config.kfSampleInterval;
+        if (config.kfSelectIntervalMs) this._kfSelectIntervalMs = config.kfSelectIntervalMs;
+        if (config.kfCandidateMax) this._kfCandidateMax = config.kfCandidateMax;
+        if (config.kfSelectedMax) this._kfSelectedMax = config.kfSelectedMax;
     }
 
     setContextGatherer(fn) { this._contextGatherer = fn; }
@@ -77,11 +92,14 @@ class VLMExtractor {
         }
         this._captureActive = false;
         for (const level of this._mipmapLevels) level.entries = [];
+        this._kfCandidates = [];
+        this._kfSelected = [];
+        this._kfSampleCounter = 0;
         console.log('[Enhance:VLM] Capture stopped, buffer cleared');
     }
 
     async _captureTick() {
-        if (!this._captureActive || !this.enabled) return;
+        if (!this._captureActive) return;
         try {
             const result = await window.electronAPI.getActiveWindow();
             if (!result?.success || !result.data?.title) return;
@@ -91,12 +109,32 @@ class VLMExtractor {
             const base64 = await window.electronAPI.getScreenCapture();
             if (!base64) return;
 
+            // Always populate mipmap (serves main AI screenshots)
             await this.pushScreenshot(base64, title);
 
-            const longTermContext = this._contextGatherer ? this._contextGatherer(title) : '';
-            this.maybeExtract(title, base64, longTermContext).catch(e => {
-                console.warn('[Enhance:VLM] Auto-extract error:', e.message);
-            });
+            // Keyframe candidate sampling (every N ticks)
+            this._kfSampleCounter++;
+            if (this._kfSampleCounter % this._kfSampleInterval === 0) {
+                this._kfCandidates.push({ base64, timestamp: Date.now(), title, resolution: 512 });
+                while (this._kfCandidates.length > this._kfCandidateMax) {
+                    this._kfCandidates.shift();
+                }
+            }
+
+            // Keyframe LLM selection (every N ms, only when VLM enabled)
+            if (this.enabled && this.aiClient && Date.now() - this._lastKfSelectTime >= this._kfSelectIntervalMs
+                && this._kfCandidates.length >= 3) {
+                this._maybeSelectKeyframes().catch(e => {
+                    console.warn('[Enhance:VLM] Keyframe selection error:', e.message);
+                });
+            }
+
+            // [SUSPENDED] VLM situation extraction — text output not consumed by main AI
+            // if (!this.enabled) return;
+            // const longTermContext = this._contextGatherer ? this._contextGatherer(title) : '';
+            // this.maybeExtract(title, base64, longTermContext).catch(e => {
+            //     console.warn('[Enhance:VLM] Auto-extract error:', e.message);
+            // });
         } catch (e) {
             console.warn('[Enhance:VLM] Capture tick error:', e.message);
         }
@@ -214,7 +252,7 @@ class VLMExtractor {
     }
 
     /**
-     * Main extraction — sends current screenshot + optional previous (downsampled).
+     * Main extraction — sends current screenshot only (no previous, avoids hallucination loop).
      */
     async maybeExtract(title, screenshotBase64, longTermContext) {
         if (!this.enabled || !title || !screenshotBase64 || !this.aiClient) return;
@@ -234,10 +272,6 @@ class VLMExtractor {
         this._extracting = true;
         try {
             let userText = `Window: ${title}`;
-            const prevSituation = this.getSituation(title);
-            if (prevSituation) {
-                userText += `\nPrevious (AI-generated, may contain errors): ${prevSituation}`;
-            }
             if (longTermContext) {
                 userText += `\nBackground:\n${longTermContext}`;
             }
@@ -246,15 +280,6 @@ class VLMExtractor {
                 { type: 'text', text: userText },
                 { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + screenshotBase64 } }
             ];
-
-            // Attach previous screenshot from L1/L2 for temporal comparison
-            const prevShot = this._getPreviousScreenshot(title);
-            if (prevShot && prevShot.base64 !== screenshotBase64) {
-                userContent.push(
-                    { type: 'text', text: '(Previous:)' },
-                    { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + prevShot.base64 } }
-                );
-            }
 
             const messages = [
                 {
@@ -268,9 +293,10 @@ class VLMExtractor {
             if (result) {
                 const situation = result.trim().slice(0, 800);
 
+                const prevEntry = this.situationMap[title];
                 if (situation === 'UNCHANGED') {
                     console.log(`[Enhance:VLM] UNCHANGED for: "${title.slice(0, 20)}"`);
-                } else if (prevSituation && situation === prevSituation) {
+                } else if (prevEntry && situation === prevEntry.situation) {
                     console.log(`[Enhance:VLM] Unchanged for: "${title.slice(0, 20)}" — keeping old timestamp`);
                 } else {
                     this.situationMap[title] = { situation, timestamp: now, focusSec: focusTime };
@@ -345,6 +371,116 @@ class VLMExtractor {
             delete this._lastExtractTime[sorted[i]];
             delete this._intervals[sorted[i]];
         }
+    }
+
+    // ========== Keyframe Buffer (Mid-term Visual Memory) ==========
+
+    /**
+     * LLM keyframe selection — picks representative frames from candidates.
+     * Candidates are sent at 256px to save tokens.
+     */
+    async _maybeSelectKeyframes() {
+        if (this._selectingKf) return;
+        this._selectingKf = true;
+        try {
+            // Downsample candidates to 256px for the selection call
+            const candidates = [];
+            for (const c of this._kfCandidates) {
+                const small = await this._downsampleBase64(c.base64, 256);
+                candidates.push({ ...c, base64Small: small });
+            }
+
+            // Build selection messages
+            const userContent = [];
+            for (let i = 0; i < candidates.length; i++) {
+                const c = candidates[i];
+                const time = new Date(c.timestamp);
+                const timeStr = `${time.getHours()}:${String(time.getMinutes()).padStart(2, '0')}`;
+                const shortTitle = typeof compactTitle !== 'undefined' ? compactTitle(c.title, 25) : c.title.slice(0, 25);
+                userContent.push(
+                    { type: 'text', text: `Frame ${i}: ${timeStr} - ${shortTitle}` },
+                    { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + c.base64Small } }
+                );
+            }
+
+            const result = await this.aiClient.callAPI([
+                { role: 'system', content: enhanceT('sys.kfSelectPrompt') },
+                { role: 'user', content: userContent }
+            ]);
+
+            // Parse JSON array of indices
+            const indices = this._parseKfIndices(result, candidates.length);
+            if (indices.length > 0) {
+                // Add selected candidates (full resolution) to keyframe buffer
+                for (const idx of indices) {
+                    const c = this._kfCandidates[idx];
+                    if (c) this._kfSelected.push({ ...c });
+                }
+                // Trim to max
+                while (this._kfSelected.length > this._kfSelectedMax) {
+                    this._kfSelected.shift();
+                }
+                // Clear used candidates
+                this._kfCandidates = [];
+                console.log(`[Enhance:VLM] Keyframe selected: [${indices.join(', ')}], total: ${this._kfSelected.length}`);
+            } else {
+                console.log('[Enhance:VLM] Keyframe selection: no valid indices returned');
+            }
+        } catch (e) {
+            console.warn('[Enhance:VLM] Keyframe selection failed:', e.message);
+        } finally {
+            this._lastKfSelectTime = Date.now();
+            this._selectingKf = false;
+        }
+    }
+
+    _parseKfIndices(text, maxIdx) {
+        if (!text) return [];
+        try {
+            const parsed = JSON.parse(text);
+            if (Array.isArray(parsed)) {
+                return parsed.filter(i => typeof i === 'number' && i >= 0 && i < maxIdx);
+            }
+        } catch {}
+        const match = text.match(/\[[\s\S]*?\]/);
+        if (match) {
+            try {
+                const arr = JSON.parse(match[0]);
+                if (Array.isArray(arr)) {
+                    return arr.filter(i => typeof i === 'number' && i >= 0 && i < maxIdx);
+                }
+            } catch {}
+        }
+        return [];
+    }
+
+    /**
+     * Get keyframes for main AI, with age-based downsampling.
+     * Returns newest-first, auto-evicts stale entries.
+     */
+    async getKeyframesForMainAI(maxCount = 3) {
+        const now = Date.now();
+        // Age and downsample
+        const aged = [];
+        for (const kf of this._kfSelected) {
+            const ageSec = Math.round((now - kf.timestamp) / 1000);
+            if (ageSec > 600) continue; // >10min: evict
+
+            let targetRes;
+            if (ageSec <= 120) targetRes = 512;
+            else if (ageSec <= 300) targetRes = 256;
+            else targetRes = 128;
+
+            if (kf.resolution > targetRes) {
+                kf.base64 = await this._downsampleBase64(kf.base64, targetRes);
+                kf.resolution = targetRes;
+            }
+            aged.push(kf);
+        }
+        this._kfSelected = aged;
+
+        // Return newest-first, up to maxCount
+        return aged.slice().reverse().slice(0, maxCount);
     }
 }
 

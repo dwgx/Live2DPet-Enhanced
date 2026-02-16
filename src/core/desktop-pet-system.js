@@ -9,7 +9,7 @@ class DesktopPetSystem {
         this.promptBuilder = null;
         this.systemPrompt = null;
         this.detectionInterval = null;
-        this.detectionIntervalMs = 30000;
+        this.detectionIntervalMs = 10000;
         this.lastAppName = null;
         this.isRequesting = false;
         this.emotionSystem = null;
@@ -27,9 +27,8 @@ class DesktopPetSystem {
         this.focusTimer = null;
         this.focusTracker = {};
 
-        // Conversation history buffer (avoid repeating topics)
-        this.conversationHistory = [];
-        this.maxHistoryPairs = 4;
+        // Style buffer: stores recent assistant responses for anti-repetition (no text history sent to API)
+        this.styleBuffer = { responses: [], maxResponses: 4 };
 
         // Message double-buffer: always play the latest, skip stale ones
         this.pendingMessage = null;   // next message to play (overwritten by newer)
@@ -38,6 +37,11 @@ class DesktopPetSystem {
 
         // Enhancement orchestrator
         this.enhancer = null;
+        this._showLayout = false; // desktop layout in prompt, default off
+
+        // Hit interaction buffer
+        this._hitBuffer = [];     // [{area, timestamp, description}]
+        this._hitCount = 0;       // session total
     }
 
     async init() {
@@ -56,10 +60,20 @@ class DesktopPetSystem {
         this.audioStateMachine = new AudioStateMachine();
         await this._initAudioState();
 
-        // Enhancement orchestrator
+        // Enhancement orchestrator (only if master toggle enabled)
         if (typeof EnhancementOrchestrator !== 'undefined') {
-            this.enhancer = new EnhancementOrchestrator(this.aiClient);
-            await this.enhancer.init();
+            try {
+                const config = await window.electronAPI.loadConfig();
+                if (config.enhance?.enabled) {
+                    this.enhancer = new EnhancementOrchestrator(this.aiClient);
+                    await this.enhancer.init();
+                }
+            } catch {}
+        }
+
+        // Listen for hit events from pet window
+        if (window.electronAPI?.onPetHit) {
+            window.electronAPI.onPetHit((data) => this._onHit(data));
         }
 
         console.log('[DesktopPetSystem] Initialized');
@@ -131,7 +145,9 @@ class DesktopPetSystem {
         } catch (e) {}
         this.isActive = false;
         this.focusTracker = {};
-        this.conversationHistory = [];
+        this.styleBuffer.responses = [];
+        this._hitBuffer = [];
+        this._hitCount = 0;
         this.pendingMessage = null;
         this.isPlayingMessage = false;
         console.log('[DesktopPetSystem] Stopped');
@@ -211,10 +227,7 @@ class DesktopPetSystem {
         }
 
         // Anti-repetition: detect repeated patterns in recent assistant responses
-        const recentAssistant = this.conversationHistory
-            .filter(m => m.role === 'assistant')
-            .slice(-3)
-            .map(m => m.content);
+        const recentAssistant = this.styleBuffer.responses.slice(-4);
         if (recentAssistant.length >= 2) {
             const hint = this._detectRepetition(recentAssistant);
             if (hint) parts.push(hint);
@@ -249,6 +262,22 @@ class DesktopPetSystem {
         if (endings.length >= 2 && new Set(endings).size === 1) {
             patterns.push(this._t('sys.patternEnding'));
         }
+
+        // Check for similar response length (all within ±20% of mean)
+        if (responses.length >= 3) {
+            const lengths = responses.map(r => r.length);
+            const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+            const allSimilar = mean > 0 && lengths.every(l => Math.abs(l - mean) / mean <= 0.2);
+            if (allSimilar) patterns.push(this._t('sys.patternLength'));
+        }
+
+        // Check for exclamation overuse
+        const exclCount = responses.filter(r => r.includes('！') || r.includes('!')).length;
+        if (exclCount >= 3) patterns.push(this._t('sys.patternExclamation'));
+
+        // Check for ellipsis overuse
+        const ellipsisCount = responses.filter(r => r.includes('…') || r.includes('...')).length;
+        if (ellipsisCount >= 3) patterns.push(this._t('sys.patternEllipsis'));
 
         if (patterns.length > 0) {
             return this._t('sys.antiRepetition').replace('{0}', patterns.join('、'));
@@ -367,6 +396,72 @@ class DesktopPetSystem {
         return short;
     }
 
+    // ========== Hit Interaction ==========
+
+    /**
+     * Handle interaction event from pet window.
+     * @param {{type: string, area: string, durationMs: number, size?: number}} data
+     */
+    _onHit(data) {
+        const now = Date.now();
+        this._hitCount++;
+        const entry = {
+            type: data.type || 'click',
+            area: data.area || 'body',
+            durationMs: data.durationMs || 0,
+            timestamp: now,
+            extra: data.size ? { size: data.size } : null
+        };
+        this._hitBuffer.push(entry);
+        while (this._hitBuffer.length > 20) this._hitBuffer.shift();
+        console.log(`[DesktopPetSystem] Interaction #${this._hitCount}: ${entry.type} ${entry.area}`);
+    }
+
+    /**
+     * Build interaction context string for injection into AI prompt.
+     * Uses configurable action descriptions from character card hitActions.
+     * Format: 过去一分钟里(描述)N次,(描述)N次
+     * Clears buffer after reading.
+     */
+    _buildHitContext() {
+        if (this._hitBuffer.length === 0) return '';
+        const now = Date.now();
+        const recent = this._hitBuffer.filter(h => now - h.timestamp < 60000);
+        if (recent.length === 0) {
+            this._hitBuffer = [];
+            return '';
+        }
+
+        // Get configurable descriptions from character card, fallback to i18n defaults
+        const ha = this.promptBuilder?.characterPrompt?.hitActions || {};
+        const types = ['click', 'touch', 'drag', 'swipe', 'resize'];
+        const desc = {};
+        for (const type of types) {
+            desc[type] = (ha[type] && ha[type].trim()) || this._t(`sys.hitDefault.${type}`);
+        }
+
+        // Count by type
+        const counts = {};
+        for (const h of recent) {
+            counts[h.type] = (counts[h.type] || 0) + 1;
+        }
+
+        const parts = [];
+        for (const type of types) {
+            if (counts[type]) {
+                parts.push(this._t('sys.hitCount').replace('{0}', desc[type]).replace('{1}', counts[type]));
+            }
+        }
+
+        if (parts.length === 0) {
+            this._hitBuffer = [];
+            return '';
+        }
+
+        this._hitBuffer = [];
+        return '\n' + this._t('sys.hitContext').replace('{0}', parts.join(','));
+    }
+
     // ========== Message Double-Buffer ==========
 
     /**
@@ -425,9 +520,9 @@ class DesktopPetSystem {
         this.isRequesting = true;
 
         try {
-            // Fetch all open windows for layout context
+            // Fetch all open windows for layout context (default off)
             let layoutSummary = '';
-            if (window.electronAPI?.getOpenWindows) {
+            if (this._showLayout && window.electronAPI?.getOpenWindows) {
                 try {
                     const winResult = await window.electronAPI.getOpenWindows();
                     if (winResult?.success && winResult.data.length > 0) {
@@ -456,7 +551,7 @@ class DesktopPetSystem {
             if (window.electronAPI?.getSystemIdleTime) {
                 try {
                     const idleSec = await window.electronAPI.getSystemIdleTime();
-                    if (idleSec >= 10) {
+                    if (idleSec >= 60) {
                         idleInfo = '\n' + this._t('sys.userIdle').replace('{0}', idleSec);
                     }
                 } catch (e) {}
@@ -476,12 +571,9 @@ class DesktopPetSystem {
             }
 
             // Build fresh system prompt with dynamic context
-            // Focus content first: enhanced context (VLM situation) → window usage
-            // Meta info last: emotion, layout, idle, position
-            let enhancedContext = '';
+            // Enhancement side-effects (search, memory) — VLM context not injected into prompt
             if (this.enhancer) {
-                enhancedContext = await this.enhancer.beforeRequest(appName, null);
-                if (enhancedContext) console.log('[DesktopPetSystem] Enhanced context:', enhancedContext);
+                await this.enhancer.beforeRequest(appName, null);
             }
             let metaInfo = '';
             if (this.emotionSystem) {
@@ -490,25 +582,30 @@ class DesktopPetSystem {
                     metaInfo += '\n' + this._t('sys.toneHint').replace('{0}', nextEmotion);
                 }
             }
-            metaInfo += layoutSummary + idleInfo + petPosInfo;
-            const dynamicContext = enhancedContext + '\n' + this.buildDynamicContext() + metaInfo;
+            metaInfo += idleInfo + petPosInfo + layoutSummary;
+            const dynamicContext = this.buildDynamicContext() + metaInfo;
             const currentSystemPrompt = this.promptBuilder.buildSystemPrompt(dynamicContext);
 
             const boundsInfo = bounds ? ` [${bounds.width}x${bounds.height}]` : '';
-            const textPrompt = this.promptBuilder.getAppDetectionPrompt(this._shortenTitle(appName, 50) + boundsInfo);
+            const hitContext = this._buildHitContext();
+            const textPrompt = this.promptBuilder.getAppDetectionPrompt(this._shortenTitle(appName, 50) + boundsInfo) + hitContext;
 
-            // Gather screenshots: fresh capture + older ones from VLM mipmap for temporal spread
-            // When VLM is active with a valid situation, limit to 2 screenshots (fresh + 1 older)
+            // Gather screenshots: HQ fresh capture (window-targeted) + older from mipmap
             const screenshots = [];
-            const vlmHasSituation = this.enhancer?.vlmExtractor?.getSituation(appName);
-            const maxScreenshots = vlmHasSituation ? 2 : 3;
-            if (window.electronAPI?.getScreenCapture) {
+            const maxScreenshots = 3;
+            if (window.electronAPI?.getScreenCaptureHQ) {
+                try {
+                    const fresh = await window.electronAPI.getScreenCaptureHQ(appName);
+                    if (fresh) screenshots.push({ base64: fresh, timestamp: Date.now() });
+                } catch (e) {}
+            }
+            if (!screenshots.length && window.electronAPI?.getScreenCapture) {
                 try {
                     const fresh = await window.electronAPI.getScreenCapture();
                     if (fresh) screenshots.push({ base64: fresh, timestamp: Date.now() });
                 } catch (e) {}
             }
-            // Add older screenshots from VLM's mipmap (L1/L2, already downsampled)
+            // Add older screenshots from mipmap (L1/L2, already downsampled) for temporal context
             if (this.enhancer?.vlmExtractor) {
                 const older = this.enhancer.vlmExtractor.getScreenshotsForMainAI(2);
                 for (const entry of older) {
@@ -518,11 +615,33 @@ class DesktopPetSystem {
                 }
             }
 
-            // Build messages: system + history + current user message
+            // Build messages: system + optional keyframe context + current user message
             const messages = [
-                { role: 'system', content: currentSystemPrompt },
-                ...this.conversationHistory
+                { role: 'system', content: currentSystemPrompt }
             ];
+
+            // Keyframe context (mid-term visual memory)
+            if (this.enhancer?.vlmExtractor) {
+                const keyframes = await this.enhancer.vlmExtractor.getKeyframesForMainAI(3);
+                if (keyframes.length > 0) {
+                    const now = Date.now();
+                    const kfContent = [{ type: 'text', text: this._t('sys.kfLabel') }];
+                    for (let i = 0; i < keyframes.length; i++) {
+                        const kf = keyframes[i];
+                        const kfTime = new Date(kf.timestamp);
+                        const kfTimeStr = `${kfTime.getHours()}:${String(kfTime.getMinutes()).padStart(2, '0')}`;
+                        const ageSec = Math.round((now - kf.timestamp) / 1000);
+                        const ageStr = ageSec < 60 ? `${ageSec}s` : `${Math.round(ageSec / 60)}min`;
+                        const shortTitle = this._shortenTitle(kf.title, 25);
+                        kfContent.push(
+                            { type: 'text', text: this._t('sys.kfEntry').replace('{0}', i + 1).replace('{1}', kfTimeStr).replace('{2}', shortTitle).replace('{3}', ageStr) },
+                            { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + kf.base64 } }
+                        );
+                    }
+                    messages.push({ role: 'user', content: kfContent });
+                    messages.push({ role: 'assistant', content: this._t('sys.kfAck') });
+                }
+            }
 
             let response;
             const hasScreenshots = screenshots.length > 0;
@@ -554,17 +673,10 @@ class DesktopPetSystem {
             }
 
             if (response) {
-                // Append to conversation history (text-only summary for user turn)
-                const userSummary = hasScreenshots
-                    ? this._t('sys.historyScreenshot').replace('{0}', appName)
-                    : this._t('sys.historyUsing').replace('{0}', appName);
-                this.conversationHistory.push(
-                    { role: 'user', content: userSummary },
-                    { role: 'assistant', content: response }
-                );
-                // Keep only last N pairs
-                while (this.conversationHistory.length > this.maxHistoryPairs * 2) {
-                    this.conversationHistory.splice(0, 2);
+                // Store response in style buffer for anti-repetition
+                this.styleBuffer.responses.push(response);
+                while (this.styleBuffer.responses.length > this.styleBuffer.maxResponses) {
+                    this.styleBuffer.responses.shift();
                 }
 
                 // Double-buffer: overwrite pending with latest

@@ -47,6 +47,7 @@ function getDefaultConfig() {
         bubble: { frameImagePath: null },
         appIcon: null,
         enhance: {
+            enabled: false,
             memory: { enabled: true, retentionDays: 30 },
             search: { enabled: false, provider: 'custom', customUrl: '', customApiKey: '', maxFrequencyMs: 30000, minFocusSeconds: 10 },
             knowledge: { enabled: false, minIntervalMs: 60000, maxIntervalMs: 3600000 },
@@ -113,6 +114,8 @@ function createConfigManager(app, options = {}) {
                 bubble: { ...defaults.bubble, ...(raw.bubble || {}) },
                 tts: { ...(defaults.tts || {}), ...(raw.tts || {}) },
                 enhance: {
+                    ...defaults.enhance,
+                    ...(raw.enhance || {}),
                     memory: { ...defaults.enhance.memory, ...((raw.enhance || {}).memory || {}) },
                     search: { ...defaults.enhance.search, ...((raw.enhance || {}).search || {}) },
                     knowledge: { ...defaults.enhance.knowledge, ...((raw.enhance || {}).knowledge || {}) },

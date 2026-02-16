@@ -45,7 +45,9 @@ function registerUtilityIPC(ctx, ipcMain, deps) {
             { label: mt('main.size'), submenu: sizes.map(s => ({
                 label: `${s}x${s}`,
                 click: () => {
+                    ctx.petWindow.setResizable(true);
                     ctx.petWindow.setSize(s, s);
+                    ctx.petWindow.setResizable(false);
                     ctx.petWindow.webContents.send('size-changed', s);
                 }
             }))},

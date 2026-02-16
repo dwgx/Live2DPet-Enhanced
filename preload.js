@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Window control
     setWindowSize: (w, h) => ipcRenderer.invoke('set-window-size', w, h),
-    setWindowPosition: (x, y) => ipcRenderer.invoke('set-window-position', x, y),
+    setWindowPosition: (x, y, w, h) => ipcRenderer.invoke('set-window-position', x, y, w, h),
     getWindowBounds: () => ipcRenderer.invoke('get-window-bounds'),
     getWindowPosition: () => ipcRenderer.invoke('get-window-position'),
 
@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Screen & window detection
     getScreenCapture: () => ipcRenderer.invoke('get-screen-capture'),
+    getScreenCaptureHQ: (targetTitle) => ipcRenderer.invoke('get-screen-capture-hq', targetTitle),
     getActiveWindow: () => ipcRenderer.invoke('get-active-window'),
     getOpenWindows: () => ipcRenderer.invoke('get-open-windows'),
     getSystemIdleTime: () => ipcRenderer.invoke('get-system-idle-time'),
@@ -51,6 +52,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     revertExpression: () => ipcRenderer.invoke('revert-expression'),
     triggerMotion: (group, index) => ipcRenderer.invoke('trigger-motion', group, index),
     reportHoverState: (hovering) => ipcRenderer.invoke('report-hover-state', hovering),
+    reportHit: (data) => ipcRenderer.invoke('report-hit', data),
 
     // Model import & scanning (Phase 1)
     selectModelFolder: () => ipcRenderer.invoke('select-model-folder'),
@@ -92,6 +94,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onPlayMotion: (cb) => ipcRenderer.on('play-motion', (e, group, index) => cb(group, index)),
     onTalkingStateChanged: (cb) => ipcRenderer.on('talking-state-changed', (e, isTalking) => cb(isTalking)),
     onPetHoverState: (cb) => ipcRenderer.on('pet-hover-state', (e, hovering) => cb(hovering)),
+    onPetHit: (cb) => ipcRenderer.on('pet-hit', (e, data) => cb(data)),
     onModelConfigUpdate: (cb) => ipcRenderer.on('model-config-update', (e, config) => cb(config)),
 
     // External links

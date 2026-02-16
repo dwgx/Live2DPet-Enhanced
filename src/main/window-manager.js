@@ -133,9 +133,15 @@ function registerWindowHandlers(ctx, ipcMain, deps) {
         }
     });
 
-    ipcMain.handle('set-window-position', async (event, x, y) => {
+    ipcMain.handle('set-window-position', async (event, x, y, w, h) => {
         try {
-            if (ctx.petWindow && !ctx.petWindow.isDestroyed()) ctx.petWindow.setPosition(x, y);
+            if (ctx.petWindow && !ctx.petWindow.isDestroyed()) {
+                if (w && h) {
+                    ctx.petWindow.setBounds({ x, y, width: w, height: h });
+                } else {
+                    ctx.petWindow.setPosition(x, y);
+                }
+            }
             return { success: true };
         } catch (error) {
             return { success: false, error: error.message };
