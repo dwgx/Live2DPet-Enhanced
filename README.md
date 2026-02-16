@@ -29,15 +29,15 @@
 <details>
 <summary>模型借物说明</summary>
 
-【Model】Little Demon
+【Model】Little Demon<br>
 Author：Cai Cat様
 
-【Model】春日部つむぎ (公式)
-イラスト：春日部つくし様
+【Model】春日部つむぎ (公式)<br>
+イラスト：春日部つくし様<br>
 モデリング：米田らん様
 
-【Model】東北きりたん ([水德式](https://www.bilibili.com/video/BV1B7dcY1EFU))
-イラスト：白白什么雨様
+【Model】東北きりたん ([水德式](https://www.bilibili.com/video/BV1B7dcY1EFU))<br>
+イラスト：白白什么雨様<br>
 配布：君临德雷克様
 
 *本示例使用的模型素材为借物展示，版权归原作者所有。*
