@@ -236,7 +236,7 @@ class VLMExtractor {
             let userText = `Window: ${title}`;
             const prevSituation = this.getSituation(title);
             if (prevSituation) {
-                userText += `\nPrevious: ${prevSituation}`;
+                userText += `\nPrevious (AI-generated, may contain errors): ${prevSituation}`;
             }
             if (longTermContext) {
                 userText += `\nBackground:\n${longTermContext}`;

@@ -787,7 +787,7 @@ describe('VLMExtractor', () => {
         vlm.situationMap['Test'] = { situation: 'Previous context here', timestamp: Date.now() - 60000, focusSec: 20 };
         await vlm.maybeExtract('Test', 'base64data', '');
         const userContent = capturedMessages[1].content[0].text;
-        assert.ok(userContent.includes('Previous: Previous context here'));
+        assert.ok(userContent.includes('Previous (AI-generated, may contain errors): Previous context here'));
     });
 
     it('getSituation returns from short-term map', () => {
