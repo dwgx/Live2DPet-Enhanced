@@ -31,9 +31,14 @@ function sanitizeSecrets(text) {
 
 function isNoiseTitle(title) {
     if (!title || title.length < 3) return true;
+    const lower = title.toLowerCase();
     const noise = ['new tab', 'desktop', 'untitled', '新标签页', '新しいタブ', 'start',
         'system tray overflow', '系统托盘溢出', 'システムトレイ'];
-    return noise.some(n => title.toLowerCase().includes(n));
+    if (noise.some(n => lower.includes(n))) return true;
+    // Windows temp/AppData paths
+    if (/\\appdata\\local\\temp\\/i.test(title)) return true;
+    if (/^[a-z]:\\users\\[^\\]+\\appdata\\/i.test(title)) return true;
+    return false;
 }
 
 function tokenizeTitle(title) {

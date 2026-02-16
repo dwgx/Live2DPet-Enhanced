@@ -43,7 +43,7 @@ class KnowledgeStore {
 
         try {
             // Build RAG context from related knowledge
-            const ragHits = this.longPool.query(title, { layer: 'knowledge', maxResults: 3, minConfidence: 0.3 });
+            const ragHits = this.longPool.query(title, { layer: 'knowledge', maxResults: 3, minConfidence: 0.5 });
             const ragContext = ragHits.map(h => `${h.title}: ${h.data.summary}`).join('\n');
 
             const messages = [

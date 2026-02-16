@@ -13,7 +13,7 @@ class KnowledgeAcquisition {
         this.enabled = false;
         this.minFocusSeconds = 60;
         this.termCooldownMs = 3600000;
-        this.maxTermsPerTopic = 15;
+        this.maxTermsPerTopic = 8;
         this.maxSearchesPerRequest = 2;
         this.retentionDays = 30;
 
@@ -63,7 +63,7 @@ class KnowledgeAcquisition {
             if (!topics || topics.length === 0) return;
 
             for (const topic of topics.slice(0, 3)) {
-                if (!topic || topic.length < 2) continue;
+                if (!topic || topic.length < 3) continue;
                 const topicKey = topic.trim();
 
                 // Check cooldown — verified topics use much longer cooldown

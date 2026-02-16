@@ -65,7 +65,7 @@ class LongTermPool {
     }
 
     query(currentTitle, options = {}) {
-        const { layer, maxResults = 5, minConfidence = 0.2 } = options;
+        const { layer, maxResults = 5, minConfidence = 0.5 } = options;
         const currentTokens = this._tokenize(currentTitle);
         if (currentTokens.length === 0) return [];
         const results = [];

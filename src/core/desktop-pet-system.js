@@ -20,10 +20,8 @@ class DesktopPetSystem {
         this.currentAudioUrl = null;
         this.currentSession = null;
 
-        // Screenshot buffer system (5s interval, per-window)
-        this.screenshotTimer = null;
-        this.screenshotBuffers = {};
-        this.maxScreenshotsPerWindow = 3;
+        // Screenshot: captured on-demand in sendRequest (VLM captures independently)
+        this.screenshotTimer = null; // kept for API compat, unused
 
         // Window focus tracking (1s sampling, cleared after each AI request)
         this.focusTimer = null;
@@ -112,7 +110,6 @@ class DesktopPetSystem {
             if (result.success) {
                 this.isActive = true;
                 this.startDetection();
-                this.startScreenshotTimer();
                 this.startFocusTimer();
                 this.emotionSystem.start();
                 console.log('[DesktopPetSystem] Started');
@@ -125,7 +122,6 @@ class DesktopPetSystem {
     async stop() {
         if (!this.isActive) return;
         this.stopDetection();
-        this.stopScreenshotTimer();
         this.stopFocusTimer();
         this.stopCurrentAudio();
         this.emotionSystem.stop();
@@ -135,7 +131,6 @@ class DesktopPetSystem {
         } catch (e) {}
         this.isActive = false;
         this.focusTracker = {};
-        this.screenshotBuffers = {};
         this.conversationHistory = [];
         this.pendingMessage = null;
         this.isPlayingMessage = false;
@@ -159,54 +154,6 @@ class DesktopPetSystem {
     setInterval(ms) {
         this.detectionIntervalMs = Math.max(10000, ms);
         if (this.isActive) this.startDetection();
-    }
-
-    // ========== Screenshot Timer (5s) ==========
-
-    startScreenshotTimer() {
-        this.stopScreenshotTimer();
-        this.screenshotTimer = setInterval(() => this.screenshotTick(), 5000);
-        console.log('[DesktopPetSystem] Screenshot timer started (5s interval)');
-    }
-
-    stopScreenshotTimer() {
-        if (this.screenshotTimer) {
-            clearInterval(this.screenshotTimer);
-            this.screenshotTimer = null;
-        }
-    }
-
-    async screenshotTick() {
-        if (!this.isActive) return;
-
-        try {
-            const result = await window.electronAPI.getActiveWindow();
-            if (!result?.success || !result.data?.owner?.name) return;
-
-            if (this.shouldSkipApp(result.data.owner.name)) return;
-            const windowKey = result.data.title || result.data.owner.name;
-
-            // Capture screenshot
-            let screenBase64 = null;
-            try {
-                screenBase64 = await window.electronAPI.getScreenCapture();
-            } catch (e) { return; }
-            if (!screenBase64) return;
-
-            // Store in per-window buffer (keyed by title for per-tab granularity)
-            if (!this.screenshotBuffers[windowKey]) this.screenshotBuffers[windowKey] = [];
-            this.screenshotBuffers[windowKey].push({
-                base64: screenBase64,
-                timestamp: Date.now(),
-                sent: false
-            });
-
-            while (this.screenshotBuffers[windowKey].length > this.maxScreenshotsPerWindow) {
-                this.screenshotBuffers[windowKey].shift();
-            }
-        } catch (error) {
-            console.error('[DesktopPetSystem] Screenshot tick error:', error);
-        }
     }
 
     // ========== Focus Tracking (1s) ==========
@@ -252,14 +199,7 @@ class DesktopPetSystem {
         // Self-awareness: appearance (know but don't mention)
         parts.push(this._t('sys.selfAwareness'));
 
-        // Self-awareness: emotion state
-        if (this.emotionSystem) {
-            const emotionVal = Math.round(this.emotionSystem.emotionValue);
-            const nextEmotion = this.emotionSystem.nextEmotionBuffer;
-            parts.push(this._t('sys.emotionState') + `${emotionVal}/100${nextEmotion ? this._t('sys.emotionNext') + nextEmotion : ''}`);
-        }
-
-        // Window focus tracking summary (top 5)
+        // Window focus tracking summary (top 5) — core focus content
         if (Object.keys(this.focusTracker).length > 0) {
             const secLabel = this._t('sys.seconds');
             const focusEntries = Object.entries(this.focusTracker)
@@ -386,6 +326,31 @@ class DesktopPetSystem {
 
     // ========== Message Double-Buffer ==========
 
+    /**
+     * Log the full request text (system prompt + history + user message),
+     * stripping base64 image data for readability.
+     */
+    _logRequestText(messages) {
+        const lines = messages.map(m => {
+            const role = m.role;
+            let text;
+            if (typeof m.content === 'string') {
+                text = m.content;
+            } else if (Array.isArray(m.content)) {
+                text = m.content
+                    .filter(c => c.type === 'text')
+                    .map(c => c.text)
+                    .join(' ');
+                const imgCount = m.content.filter(c => c.type === 'image_url').length;
+                if (imgCount > 0) text += ` [+${imgCount} image(s)]`;
+            } else {
+                text = JSON.stringify(m.content);
+            }
+            return `[${role}] ${text}`;
+        });
+        console.log(`[DesktopPetSystem] === Request (${messages.length} messages) ===\n${lines.join('\n')}`);
+    }
+
     async _processQueue() {
         if (this.isPlayingMessage) return;
         this.isPlayingMessage = true;
@@ -436,7 +401,7 @@ class DesktopPetSystem {
                                 const size = b ? `${b.width}x${b.height}` : '?';
                                 return `${this._shortenTitle(w.title || w.owner.name)} [${size}]`;
                             });
-                        if (lines.length > 0) {
+                        if (lines.length > 2) {
                             layoutSummary = '\n' + this._t('sys.windowLayout') + lines.join(', ');
                         }
                     }
@@ -468,20 +433,44 @@ class DesktopPetSystem {
             }
 
             // Build fresh system prompt with dynamic context
+            // Focus content first: enhanced context (VLM situation) → window usage
+            // Meta info last: emotion, layout, idle, position
             let enhancedContext = '';
             if (this.enhancer) {
-                const latestScreenshot = (this.screenshotBuffers[appName] || []).slice(-1)[0];
-                enhancedContext = await this.enhancer.beforeRequest(appName, latestScreenshot?.base64 || null);
+                enhancedContext = await this.enhancer.beforeRequest(appName, null);
                 if (enhancedContext) console.log('[DesktopPetSystem] Enhanced context:', enhancedContext);
             }
-            const dynamicContext = this.buildDynamicContext() + layoutSummary + idleInfo + petPosInfo + enhancedContext;
+            let metaInfo = '';
+            if (this.emotionSystem) {
+                const nextEmotion = this.emotionSystem.nextEmotionBuffer;
+                if (nextEmotion) {
+                    metaInfo += '\n' + this._t('sys.toneHint').replace('{0}', nextEmotion);
+                }
+            }
+            metaInfo += layoutSummary + idleInfo + petPosInfo;
+            const dynamicContext = enhancedContext + '\n' + this.buildDynamicContext() + metaInfo;
             const currentSystemPrompt = this.promptBuilder.buildSystemPrompt(dynamicContext);
 
             const boundsInfo = bounds ? ` [${bounds.width}x${bounds.height}]` : '';
             const textPrompt = this.promptBuilder.getAppDetectionPrompt(this._shortenTitle(appName, 50) + boundsInfo);
 
-            // Only gather NEW (unsent) screenshots
-            const windowScreenshots = (this.screenshotBuffers[appName] || []).filter(s => !s.sent);
+            // Gather screenshots: fresh capture + older ones from VLM mipmap for temporal spread
+            const screenshots = [];
+            if (window.electronAPI?.getScreenCapture) {
+                try {
+                    const fresh = await window.electronAPI.getScreenCapture();
+                    if (fresh) screenshots.push({ base64: fresh, timestamp: Date.now() });
+                } catch (e) {}
+            }
+            // Add older screenshots from VLM's mipmap (L1/L2, already downsampled)
+            if (this.enhancer?.vlmExtractor) {
+                const older = this.enhancer.vlmExtractor.getScreenshotsForMainAI(2);
+                for (const entry of older) {
+                    // Skip if same as fresh capture (L0 latest ≈ fresh)
+                    if (screenshots.length > 0 && entry.base64 === screenshots[0].base64) continue;
+                    if (screenshots.length < 3) screenshots.push(entry);
+                }
+            }
 
             // Build messages: system + history + current user message
             const messages = [
@@ -490,41 +479,37 @@ class DesktopPetSystem {
             ];
 
             let response;
+            const hasScreenshots = screenshots.length > 0;
 
-            if (windowScreenshots.length > 0) {
+            if (hasScreenshots) {
                 const now = new Date();
                 const timeStr = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
                 const userContent = [
                     { type: 'text', text: `[${timeStr}] ${textPrompt}${this._t('sys.screenshotAttached')}` }
                 ];
-
-                for (const screenshot of windowScreenshots) {
+                for (const shot of screenshots) {
                     userContent.push({
                         type: 'image_url',
-                        image_url: { url: 'data:image/jpeg;base64,' + screenshot.base64 }
+                        image_url: { url: 'data:image/jpeg;base64,' + shot.base64 }
                     });
                 }
 
                 messages.push({ role: 'user', content: userContent });
+                this._logRequestText(messages);
                 response = await this.aiClient.callAPI(messages);
-
-                // Mark sent and clear old screenshots for this window
-                for (const screenshot of windowScreenshots) {
-                    screenshot.sent = true;
-                }
-                this.screenshotBuffers[appName] = this.screenshotBuffers[appName].filter(s => !s.sent);
             } else {
                 // No new screenshots — use idle prompt with timestamp
                 const now = new Date();
                 const timeStr = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
                 const idlePrompt = this.promptBuilder.getIdlePrompt();
                 messages.push({ role: 'user', content: `[${timeStr}] ${idlePrompt}` });
+                this._logRequestText(messages);
                 response = await this.aiClient.callAPI(messages);
             }
 
             if (response) {
                 // Append to conversation history (text-only summary for user turn)
-                const userSummary = windowScreenshots.length > 0
+                const userSummary = hasScreenshots
                     ? this._t('sys.historyScreenshot').replace('{0}', appName)
                     : this._t('sys.historyUsing').replace('{0}', appName);
                 this.conversationHistory.push(

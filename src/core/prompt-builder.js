@@ -112,7 +112,9 @@ class PetPromptBuilder {
             parts.push(this._t('sys.useLanguage').replace('{0}', this.characterPrompt.language));
         }
 
-        return parts.join('\n\n');
+        const prompt = parts.join('\n\n');
+        console.log(`[PromptBuilder] System prompt built (${prompt.length} chars), dynamic context: ${dynamicContext ? dynamicContext.length + ' chars' : 'none'}`);
+        return prompt;
     }
 
     getAppDetectionPrompt(appName) {

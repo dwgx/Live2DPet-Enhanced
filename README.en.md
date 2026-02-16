@@ -6,7 +6,7 @@
 
 > If you find this useful, please consider giving it a [Star](https://github.com/x380kkm/Live2DPet) :)
 
-An Electron-based desktop pet. A Live2D character stays on your desktop, perceives your activity via screenshots, generates companionship dialogue through AI, and speaks with VOICEVOX text-to-speech. Built with AI-assisted development using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+An Electron-based desktop pet. A Live2D character stays on your desktop, understands what you're doing through screenshots and window awareness, generates companionship dialogue through AI, automatically searches and accumulates relevant knowledge for deeper conversations, and speaks with VOICEVOX text-to-speech. Built with AI-assisted development using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 > **Privacy Notice**: This app periodically captures screenshots and sends them to your configured AI API for analysis. Screenshots are never saved to disk. Make sure you trust your API provider and be mindful of sensitive information displayed on screen.
 
@@ -124,6 +124,7 @@ The character automatically switches to "talking" images when the AI speaks, emo
 - **Live2D Desktop Character** — Transparent frameless window, always on top, eyes follow cursor
 - **Image Model** — Use an image folder as character, tagged by idle/talking/emotion, AI-driven auto switching
 - **AI Visual Awareness** — Periodic screenshots + active window detection, AI responds to screen content
+- **Smart Enhancement** — Auto-searches relevant knowledge, screen situation analysis, activity memory for deeper conversations
 - **VOICEVOX Voice** — Local Japanese TTS, auto translation, one-click setup
 - **Emotion System** — AI-driven expression/motion selection with emotion accumulation triggers
 - **Audio State Machine** — TTS → default phrases → silent, three-mode auto fallback
@@ -228,120 +229,7 @@ Please record the log output when the issue occurs and include it when submittin
 
 ## Changelog
 
-### v1.9.0 — Main Process Modular Refactor
-
-- Split main.js (1665 lines) into 15 independent modules (`src/main/`) with clear responsibilities
-- New AppContext shared state management with dependency injection pattern
-- New AES-256-GCM API key encryption at rest (`crypto-utils.js`), backward compatible with plaintext
-- New input validation module (`validators.js`): UUID / URL / path traversal protection
-- New unit tests: config-manager / crypto-utils / validators (42 tests)
-- Settings page TTS save optimization: only sends tts config section, avoids triggering model hot-reload
-- Architecture diagram updated to reflect modular structure
-- Enhancement VLM refactor: replaced multi-section context assembly with single compressed situation buffer, VLM as sole compression point
-- New situationMap short-term cache (LRU eviction) + long-term persistence promotion
-- Simplified idle prompts, removed implementation detail references (screenshots/window titles)
-
-<details>
-<summary>Earlier Versions</summary>
-
-### v1.8.0 — Enhancement System
-
-- New "Enhance" settings tab with modular context enhancement:
-  - Activity Memory: Records daily app usage patterns for richer conversation context
-  - Context Search: Auto-searches related info for current window (DuckDuckGo / Custom API)
-  - Knowledge Organization: LLM-organized knowledge summaries from search results
-  - Screen Analysis: Vision API extracts keywords from screenshots to enrich context
-  - Knowledge Acquisition: Auto-generates search tasks from screen analysis topics, continuously accumulates domain knowledge
-- Context Pool architecture: layered storage (short-term / long-term) with lightweight Jaccard-similarity RAG retrieval
-- Main process Web Search IPC: DuckDuckGo HTML scraping and custom API support (Bing / SearXNG, etc.)
-- Adjustable response length multiplier (×0.5 / ×1 / ×1.5 / ×2)
-- Auto-sanitization of context data to prevent API key and secret leakage
-- Improved system prompts: idle prompts now use context-aware cues instead of assuming screenshots
-- Emotion classifier prompt fully internationalized
-- Self-awareness prompt simplified, no longer includes specific appearance description
-- Dynamic context placed after character rules for better prompt structure
-- Screenshot resolution optimized (640→512) to reduce API costs
-
-<details>
-<summary>Earlier Versions</summary>
-
-### v1.7.1 — Self-Awareness & Idle Detection
-
-- Pet can now locate itself in screenshots via screen position info
-- Window title shortening for cleaner context
-- System idle time detection (keyboard/mouse inactivity)
-- Minimized window filtering
-
-### v1.7.0 — Window Awareness & GPU TTS
-
-- Window detection now reads window titles (e.g. browser tab titles), tracked independently per title
-- AI requests now include desktop window layout info and window dimensions
-- One-click setup now downloads DirectML (GPU) ONNX Runtime for GPU-accelerated TTS
-
-<details>
-<summary>Earlier Versions</summary>
-
-### v1.6.1 — Hot-Reload & Auto-Restart Improvements
-
-- Model config changes now hot-reload the pet window without restart
-- VVM download auto-adds to config and restarts TTS
-- VVM save button now restarts the app automatically
-- Fixed TTS restart failure caused by duplicate koffi type registration
-- Fixed app relaunch for portable exe builds
-
-### v1.6.0 — System Tray Support
-
-- Added system tray icon, app minimizes to tray area
-- Settings window auto-hides to tray when pet starts
-- Left-click tray icon to reopen settings window
-- Right-click tray menu: Show Settings / Show/Hide Pet / Quit
-- Closing settings window no longer quits the app, hides to tray instead
-
-<details>
-<summary>Earlier Versions</summary>
-
-### v1.5.0 — Multi-Language UI
-
-- Added i18n support for settings UI (English / 中文 / 日本語)
-- Added UI language switcher
-- Updated built-in character card with a more distinctive default persona
-- Auto-sync built-in cards on version update; user-modified cards are cloned to preserve edits
-- Character card import via file picker and auto-scan of prompts folder
-- Built-in card label in character list
-
-### v1.4.0 — Translation & Chat Improvements
-
-- Separate translation API config from main API
-- Improved translation quality with increased API timeout
-- Message double-buffer mechanism with configurable chat gap
-- Strip English letters from AI response display
-- Added open-source notice with GitHub link in settings
-
-### v1.3.0 — Documentation & UX Improvements
-
-- Streamlined API configuration guide with model recommendations (Grok / Gemini 3 Pro Preview)
-- Detailed VOICEVOX voice setup workflow documentation
-- Added troubleshooting guide and known issues
-- Added contributors and sponsors lists
-- Collapsed developer-facing sections for cleaner reading
-
-### v1.2.0 — Image Model
-
-- New image folder model: select an image folder, tag each image as idle/talking/emotion
-- Auto-switch to talking images when AI speaks, emotion images on mood triggers
-- Crop scale control for different aspect ratio character images
-- Supports PNG / JPG / WebP
-
-### Earlier
-
-- v1.1.0 — Fast response mode, conversation history buffer, screenshot dedup, language-agnostic translation & emotion
-- v1.0.0 — Initial release: Live2D desktop pet, AI visual awareness, VOICEVOX TTS, emotion/expression system
-
-</details>
-
-</details>
-
-</details>
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -87,6 +87,12 @@ function registerUtilityIPC(ctx, ipcMain, deps) {
         }
         return { success: true };
     });
+
+    // Forward renderer console.log to main process stdout (no --enable-logging needed)
+    ipcMain.on('renderer-log', (_, level, args) => {
+        const fn = console[level] || console.log;
+        fn.apply(console, args);
+    });
 }
 
 module.exports = { registerUtilityIPC };

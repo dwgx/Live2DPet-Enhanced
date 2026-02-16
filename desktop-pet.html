@@ -68,6 +68,19 @@
     <script src="libs/live2dcubismcore.min.js"></script>
     <script src="libs/pixi.min.js"></script>
     <script src="libs/cubism4.min.js"></script>
+    <script>
+        // Forward renderer console to main process (visible without --enable-logging)
+        if (window.electronAPI?.rendererLog) {
+            const _log = console.log, _warn = console.warn, _error = console.error;
+            for (const level of ['log', 'warn', 'error']) {
+                const orig = console[level];
+                console[level] = (...args) => {
+                    orig.apply(console, args);
+                    try { window.electronAPI.rendererLog(level, args.map(String)); } catch {}
+                };
+            }
+        }
+    </script>
     <script src="src/renderer/model-adapter.js"></script>
     <script>
         const sizePresets = [200, 300, 400, 500];

@@ -19,7 +19,11 @@ function loadEnhanceModules(...files) {
             'sys.vlmPrompt': 'Extract keywords. Output in {0}.',
             'sys.kbTopicPrompt': 'Extract topics from: {0}',
             'sys.kbTermsPrompt': 'Search terms for "{0}". Time: {1}',
-            'sys.emotionPrompt': 'Pick emotion from [{0}].'
+            'sys.searchQueryPrompt': 'Extract 1-3 search keywords from this window title. Return JSON array.',
+            'sys.emotionPrompt': 'Pick emotion from [{0}].',
+            'sys.secsAgo': 's ago', 'sys.minsAgo': 'min ago',
+            'sys.backgroundInfo': 'Background Info (no reaction needed)',
+            'sys.situationHistory': 'Recent context (continuity reference only, avoid repeating)'
         } }
     };
     global.window._enhanceLang = 'en';
@@ -36,6 +40,7 @@ function loadEnhanceModules(...files) {
     if (w.enhanceLangName) global.enhanceLangName = w.enhanceLangName;
     if (w.isNoiseTitle) global.isNoiseTitle = w.isNoiseTitle;
     if (w.sanitizeSecrets) global.sanitizeSecrets = w.sanitizeSecrets;
+    if (w.compactTitle) global.compactTitle = w.compactTitle;
     if (w.ShortTermPool) global.ShortTermPool = w.ShortTermPool;
     if (w.LongTermPool) global.LongTermPool = w.LongTermPool;
     if (w.MemoryTracker) global.MemoryTracker = w.MemoryTracker;
@@ -523,13 +528,63 @@ describe('EnhancementOrchestrator', () => {
         assert.strictEqual(eo._shouldSearch('React Tutorial'), true);
     });
 
+    it('_shouldSearch returns false for IDE titles', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.searchService.enabled = true;
+        eo._minFocusSeconds = 0;
+        eo._maxSearchFrequencyMs = 0;
+        eo.shortPool.set('memory.today', { 'live2dpet - Cursor': 100 });
+        assert.strictEqual(eo._shouldSearch('live2dpet - Cursor'), false);
+    });
+
+    it('_isIDETitle detects various IDE suffixes', () => {
+        const eo = new EnhancementOrchestrator(null);
+        assert.strictEqual(eo._isIDETitle('live2dpet - Cursor'), true);
+        assert.strictEqual(eo._isIDETitle('project - VS Code'), true);
+        assert.strictEqual(eo._isIDETitle('app - IntelliJ'), true);
+        assert.strictEqual(eo._isIDETitle('React Tutorial'), false);
+        assert.strictEqual(eo._isIDETitle('Cursor Settings'), false);
+    });
+
+    it('_shouldSearch respects per-title cooldown', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.searchService.enabled = true;
+        eo._minFocusSeconds = 0;
+        eo._maxSearchFrequencyMs = 0;
+        eo.shortPool.set('memory.today', { 'React Tutorial': 100 });
+        // First search should be allowed
+        assert.strictEqual(eo._shouldSearch('React Tutorial'), true);
+        // Mark as recently searched
+        eo._searchedTitles['React Tutorial'] = Date.now();
+        // Should be blocked by per-title cooldown
+        assert.strictEqual(eo._shouldSearch('React Tutorial'), false);
+        // Different title should still be allowed
+        eo.shortPool.set('memory.today', { 'React Tutorial': 100, 'Vue Guide': 50 });
+        assert.strictEqual(eo._shouldSearch('Vue Guide'), true);
+    });
+
+    it('_shouldSearch respects failure cooldown', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.searchService.enabled = true;
+        eo._minFocusSeconds = 0;
+        eo._maxSearchFrequencyMs = 0;
+        eo.shortPool.set('memory.today', { 'React Tutorial': 100 });
+        // Simulate failure cooldown
+        eo._searchFailCooldownMs = 60000;
+        eo._lastSearchTime = Date.now();
+        assert.strictEqual(eo._shouldSearch('React Tutorial'), false);
+        // After cooldown expires
+        eo._lastSearchTime = Date.now() - 61000;
+        assert.strictEqual(eo._shouldSearch('React Tutorial'), true);
+    });
+
     it('buildEnhancedContext returns empty when no data', () => {
         const eo = new EnhancementOrchestrator(null);
         const ctx = eo.buildEnhancedContext('test');
         assert.strictEqual(ctx, '');
     });
 
-    it('buildEnhancedContext returns situation from VLM buffer with timestamp', () => {
+    it('buildEnhancedContext uses dynamic label for age <= 30s', () => {
         const eo = new EnhancementOrchestrator(null);
         eo.vlmExtractor.situationMap['React Tutorial'] = {
             situation: 'User is reading React hooks documentation',
@@ -537,9 +592,55 @@ describe('EnhancementOrchestrator', () => {
             focusSec: 30
         };
         const ctx = eo.buildEnhancedContext('React Tutorial');
+        assert.ok(ctx.includes('Screen Content'));
         assert.ok(ctx.includes('React hooks documentation'));
-        // Should contain relative time
         assert.ok(ctx.includes('15'));
+    });
+
+    it('buildEnhancedContext uses background label for age > 30s', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.vlmExtractor.situationMap['React Tutorial'] = {
+            situation: 'User is reading React hooks documentation',
+            timestamp: Date.now() - 120000,
+            focusSec: 30
+        };
+        const ctx = eo.buildEnhancedContext('React Tutorial');
+        assert.ok(ctx.includes('Background Info'));
+        assert.ok(!ctx.includes('Screen Content'));
+    });
+
+    it('buildEnhancedContext returns empty for UNCHANGED situation', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.vlmExtractor.situationMap['Test'] = {
+            situation: 'UNCHANGED', timestamp: Date.now(), focusSec: 20
+        };
+        const ctx = eo.buildEnhancedContext('Test');
+        assert.strictEqual(ctx, '');
+    });
+
+    it('buildEnhancedContext appends situation history', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.vlmExtractor.situationMap['Current'] = {
+            situation: 'Current activity', timestamp: Date.now() - 5000, focusSec: 30
+        };
+        eo.vlmExtractor._situationHistory = [
+            { situation: 'Previous activity', timestamp: Date.now() - 60000, title: 'OldApp' }
+        ];
+        const ctx = eo.buildEnhancedContext('Current');
+        assert.ok(ctx.includes('Recent context'));
+        assert.ok(ctx.includes('Previous activity'));
+    });
+
+    it('buildEnhancedContext deduplicates history against current', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.vlmExtractor.situationMap['Current'] = {
+            situation: 'Same text', timestamp: Date.now() - 5000, focusSec: 30
+        };
+        eo.vlmExtractor._situationHistory = [
+            { situation: 'Same text', timestamp: Date.now() - 60000, title: 'OldApp' }
+        ];
+        const ctx = eo.buildEnhancedContext('Current');
+        assert.ok(!ctx.includes('Recent context'));
     });
 
     it('buildEnhancedContext falls back to most recent when low focus', () => {
@@ -778,6 +879,123 @@ describe('VLMExtractor', () => {
         assert.strictEqual(vlm._intervals['test'], undefined);
         assert.strictEqual(vlm._lastExtractTime['test'], undefined);
     });
+
+    it('startCapture and stopCapture manage lifecycle', () => {
+        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
+        vlm.startCapture();
+        assert.strictEqual(vlm._captureActive, true);
+        vlm.stopCapture();
+        assert.strictEqual(vlm._captureActive, false);
+        assert.strictEqual(vlm.getBufferSize(), 0);
+    });
+
+    it('pushScreenshot adds to mipmap L0', async () => {
+        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
+        vlm.startCapture();
+        await vlm.pushScreenshot('img1', 'Title1');
+        assert.strictEqual(vlm._mipmapLevels[0].entries.length, 1);
+        assert.strictEqual(vlm.getBufferSize(), 1);
+    });
+
+    it('pushScreenshot cascades overflow from L0 to L1 to L2', async () => {
+        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
+        vlm.startCapture();
+        // L0 maxSize=2, push 3 → overflow 1 to L1
+        await vlm.pushScreenshot('img1', 'T1');
+        await vlm.pushScreenshot('img2', 'T2');
+        await vlm.pushScreenshot('img3', 'T3');
+        assert.strictEqual(vlm._mipmapLevels[0].entries.length, 2);
+        assert.strictEqual(vlm._mipmapLevels[1].entries.length, 1);
+        // Push 2 more → L0 overflows again, L1 now has 2
+        await vlm.pushScreenshot('img4', 'T4');
+        await vlm.pushScreenshot('img5', 'T5');
+        assert.strictEqual(vlm._mipmapLevels[0].entries.length, 2);
+        assert.strictEqual(vlm._mipmapLevels[1].entries.length, 2);
+        // Push 2 more → L0 overflows, L1 overflows to L2
+        await vlm.pushScreenshot('img6', 'T6');
+        await vlm.pushScreenshot('img7', 'T7');
+        assert.strictEqual(vlm._mipmapLevels[2].entries.length, 1);
+        assert.strictEqual(vlm.getBufferSize(), 5); // 2+2+1
+    });
+
+    it('pushScreenshot does nothing when capture inactive', async () => {
+        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
+        await vlm.pushScreenshot('img1', 'Title1');
+        assert.strictEqual(vlm.getBufferSize(), 0);
+    });
+
+    it('_getPreviousScreenshot returns matching title from L1/L2', async () => {
+        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
+        vlm.startCapture();
+        // Push enough to cascade 'App' into L1
+        await vlm.pushScreenshot('img1', 'App');
+        await vlm.pushScreenshot('img2', 'Other');
+        await vlm.pushScreenshot('img3', 'App'); // img1 cascades to L1
+        const prev = vlm._getPreviousScreenshot('App');
+        assert.ok(prev);
+        assert.strictEqual(prev.title, 'App');
+    });
+
+    it('getScreenshotsForMainAI returns time-staggered entries from different levels', async () => {
+        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
+        vlm.startCapture();
+        // Fill enough to cascade across levels
+        for (let i = 0; i < 7; i++) await vlm.pushScreenshot(`img${i}`, `T${i}`);
+        // Should have entries in L0, L1, L2
+        const shots = vlm.getScreenshotsForMainAI(3);
+        assert.ok(shots.length >= 2);
+        assert.ok(shots.length <= 3);
+    });
+
+    it('getRecentHistory returns recent situation entries', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const mockAI = { callAPI: async () => 'situation text' };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        vlm.baseIntervalMs = 0;
+        sp.set('memory.today', { 'App1': 30, 'App2': 30 });
+
+        await vlm.maybeExtract('App1', 'base64', '');
+        vlm._extracting = false;
+        vlm._lastExtractTime = {};
+        vlm._intervals = {};
+        await vlm.maybeExtract('App2', 'base64', '');
+
+        const history = vlm.getRecentHistory(5);
+        // Both extractions returned same text, but first one creates entry, second is duplicate → only 1
+        // Actually they have different titles so both should be stored
+        assert.ok(history.length >= 1);
+        assert.ok(history[0].situation.length > 0);
+    });
+
+    it('UNCHANGED output does not update situationMap', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const mockAI = { callAPI: async () => 'UNCHANGED' };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        sp.set('memory.today', { 'Test': 30 });
+        vlm.situationMap['Test'] = { situation: 'old situation', timestamp: 1000, focusSec: 10 };
+        await vlm.maybeExtract('Test', 'base64', '');
+        assert.strictEqual(vlm.situationMap['Test'].situation, 'old situation');
+        assert.strictEqual(vlm.situationMap['Test'].timestamp, 1000);
+    });
+
+    it('setContextGatherer stores callback', () => {
+        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
+        const fn = () => 'context';
+        vlm.setContextGatherer(fn);
+        assert.strictEqual(vlm._contextGatherer, fn);
+    });
+
+    it('configure accepts captureTimerMs', () => {
+        const vlm = new VLMExtractor(new ShortTermPool(), new LongTermPool(), null);
+        vlm.configure({ captureTimerMs: 5000 });
+        assert.strictEqual(vlm._captureTimerMs, 5000);
+    });
 });
 
 // ========== Test: KnowledgeAcquisition ==========
@@ -944,5 +1162,628 @@ describe('KnowledgeAcquisition', () => {
         const decayed = lp.getForTitle('old topic', 'acquired');
         assert.ok(decayed);
         assert.ok(decayed.confidence < 0.8);
+    });
+});
+
+// ========== Test: enhance-utils edge cases ==========
+
+describe('enhance-utils edge cases', () => {
+    beforeEach(() => {
+        loadEnhanceModules('context-pool.js', 'enhance-utils.js');
+    });
+
+    it('compactTitle strips bilibili suffix', () => {
+        const result = compactTitle('回来再练练 - 乖离型李华 - 哔哩哔哩直播，二次元弹幕直播平台');
+        assert.ok(!result.includes('哔哩哔哩'));
+        assert.ok(result.includes('回来再练练'));
+    });
+
+    it('compactTitle strips browser suffix', () => {
+        assert.ok(!compactTitle('React Docs - Google Chrome').includes('Chrome'));
+        assert.ok(!compactTitle('GitHub - Microsoft Edge').includes('Edge'));
+    });
+
+    it('compactTitle strips "和另外N个" suffix', () => {
+        const result = compactTitle('React Tutorial 和另外 5 个页面');
+        assert.ok(!result.includes('和另外'));
+    });
+
+    it('compactTitle truncates to maxLen', () => {
+        const long = 'A'.repeat(50);
+        assert.strictEqual(compactTitle(long, 10).length, 10);
+    });
+
+    it('compactTitle returns empty for null/empty', () => {
+        assert.strictEqual(compactTitle(null), '');
+        assert.strictEqual(compactTitle(''), '');
+    });
+
+    it('tokenizeTitle removes stop words', () => {
+        const tokens = tokenizeTitle('the React is a great library');
+        assert.ok(!tokens.includes('the'));
+        assert.ok(!tokens.includes('is'));
+        assert.ok(!tokens.includes('a'));
+        assert.ok(tokens.includes('react'));
+        assert.ok(tokens.includes('great'));
+        assert.ok(tokens.includes('library'));
+    });
+
+    it('tokenizeTitle removes Edge personal suffix', () => {
+        const tokens = tokenizeTitle('React Tutorial - 个人 - Microsoft Edge');
+        assert.ok(!tokens.includes('microsoft'));
+        assert.ok(!tokens.includes('edge'));
+        assert.ok(tokens.includes('react'));
+        assert.ok(tokens.includes('tutorial'));
+    });
+
+    it('tokenizeTitle removes "和另外N个页面"', () => {
+        const tokens = tokenizeTitle('React 和另外 3 个页面');
+        assert.ok(tokens.includes('react'));
+        assert.ok(!tokens.some(t => t.includes('页面')));
+    });
+
+    it('tokenizeTitle filters single-char tokens', () => {
+        const tokens = tokenizeTitle('A B React');
+        assert.ok(!tokens.includes('a'));
+        assert.ok(!tokens.includes('b'));
+        assert.ok(tokens.includes('react'));
+    });
+
+    it('isNoiseTitle handles edge cases', () => {
+        assert.strictEqual(isNoiseTitle('System Tray Overflow'), true);
+        assert.strictEqual(isNoiseTitle('系统托盘溢出'), true);
+        assert.strictEqual(isNoiseTitle('新标签页'), true);
+        assert.strictEqual(isNoiseTitle('Start'), true);
+        assert.strictEqual(isNoiseTitle('VSCode - main.js'), false);
+    });
+
+    it('isNoiseTitle detects Windows temp paths', () => {
+        assert.strictEqual(isNoiseTitle('C:\\Users\\test\\AppData\\Local\\Temp\\file.tmp'), true);
+        assert.strictEqual(isNoiseTitle('something \\AppData\\Local\\Temp\\ stuff'), true);
+        assert.strictEqual(isNoiseTitle('C:\\Users\\admin\\AppData\\Roaming\\app'), true);
+        assert.strictEqual(isNoiseTitle('React Tutorial - Chrome'), false);
+    });
+
+    it('sanitizeSecrets preserves normal text with special chars', () => {
+        assert.strictEqual(sanitizeSecrets('Hello, World! 你好'), 'Hello, World! 你好');
+        assert.strictEqual(sanitizeSecrets('path/to/file.js:42'), 'path/to/file.js:42');
+    });
+
+    it('sanitizeSecrets masks tokens and API keys', () => {
+        const masked = sanitizeSecrets('Bearer sk_live_abcdefghijklmnopqrst');
+        assert.ok(masked.includes('[***]'));
+        assert.ok(!masked.includes('abcdefghijklmnopqrst'));
+    });
+});
+
+// ========== Test: _gatherLongTermContext ==========
+
+describe('_gatherLongTermContext', () => {
+    let EnhancementOrchestrator;
+
+    beforeEach(() => {
+        loadEnhanceModules('context-pool.js', 'enhance-utils.js', 'memory-tracker.js',
+            'search-service.js', 'knowledge-store.js', 'vlm-extractor.js', 'enhancement-orchestrator.js');
+        EnhancementOrchestrator = global.window.EnhancementOrchestrator;
+    });
+
+    it('returns empty string when no data exists', () => {
+        const eo = new EnhancementOrchestrator(null);
+        assert.strictEqual(eo._gatherLongTermContext('unknown title'), '');
+    });
+
+    it('includes activity summary from short pool', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.shortPool.set('memory.today', { 'VSCode': 120, 'Chrome': 60 });
+        const ctx = eo._gatherLongTermContext('VSCode');
+        assert.ok(ctx.includes('Activity:'));
+        assert.ok(ctx.includes('120s'));
+    });
+
+    it('activity summary shows top 5 sorted by seconds', () => {
+        const eo = new EnhancementOrchestrator(null);
+        const data = {};
+        for (let i = 0; i < 8; i++) data[`App${i}`] = (i + 1) * 10;
+        eo.shortPool.set('memory.today', data);
+        const ctx = eo._gatherLongTermContext('App7');
+        // Should include top 5 (App7=80, App6=70, App5=60, App4=50, App3=40)
+        assert.ok(ctx.includes('80s'));
+        assert.ok(!ctx.includes('10s')); // App0=10 should be excluded
+    });
+
+    it('includes knowledge RAG hits', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.longPool.setForTitle('react hooks guide', 'knowledge', {
+            summary: 'React hooks allow state in functional components'
+        });
+        const ctx = eo._gatherLongTermContext('react hooks tutorial');
+        assert.ok(ctx.includes('Knowledge:'));
+        assert.ok(ctx.includes('React hooks'));
+    });
+
+    it('includes cached search results from short pool', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.shortPool.set('search.results', 'React is a JavaScript library for building UIs');
+        const ctx = eo._gatherLongTermContext('React Tutorial');
+        assert.ok(ctx.includes('Search:'));
+        assert.ok(ctx.includes('JavaScript library'));
+    });
+
+    it('falls back to long pool search when short pool empty', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.longPool.setForTitle('react tutorial', 'search', {
+            results: 'Cached: React documentation and guides', cachedAt: Date.now()
+        });
+        const ctx = eo._gatherLongTermContext('react tutorial');
+        assert.ok(ctx.includes('Search:'));
+        assert.ok(ctx.includes('Cached: React'));
+    });
+
+    it('includes acquired knowledge', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.longPool.setForTitle('react hooks', 'acquired', {
+            summary: 'useState and useEffect are the most common hooks',
+            confidence: 0.8
+        });
+        const ctx = eo._gatherLongTermContext('react hooks');
+        assert.ok(ctx.includes('Acquired:'));
+        assert.ok(ctx.includes('useState'));
+    });
+
+    it('combines all sections with newlines', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.shortPool.set('memory.today', { 'react tutorial': 100 });
+        eo.shortPool.set('search.results', 'React search results here');
+        eo.longPool.setForTitle('react tutorial', 'knowledge', { summary: 'React knowledge' });
+        const ctx = eo._gatherLongTermContext('react tutorial');
+        const lines = ctx.split('\n');
+        assert.ok(lines.length >= 3); // Activity + Knowledge + Search
+    });
+
+    it('truncates knowledge hits to 500 chars', () => {
+        const eo = new EnhancementOrchestrator(null);
+        const longSummary = 'X'.repeat(600);
+        eo.longPool.setForTitle('test title', 'knowledge', { summary: longSummary });
+        const ctx = eo._gatherLongTermContext('test title');
+        const knowledgeLine = ctx.split('\n').find(l => l.startsWith('Knowledge:'));
+        assert.ok(knowledgeLine);
+        assert.ok(knowledgeLine.length <= 'Knowledge: '.length + 500 + 5);
+    });
+
+    it('truncates search results to 500 chars', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.shortPool.set('search.results', 'S'.repeat(700));
+        const ctx = eo._gatherLongTermContext('test');
+        const searchLine = ctx.split('\n').find(l => l.startsWith('Search:'));
+        assert.ok(searchLine);
+        assert.ok(searchLine.length <= 'Search: '.length + 500 + 5);
+    });
+
+    it('truncates acquired knowledge to 400 chars', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.longPool.setForTitle('test', 'acquired', {
+            summary: 'A'.repeat(500), confidence: 0.8
+        });
+        const ctx = eo._gatherLongTermContext('test');
+        const acquiredLine = ctx.split('\n').find(l => l.startsWith('Acquired:'));
+        assert.ok(acquiredLine);
+        assert.ok(acquiredLine.length <= 'Acquired: '.length + 400 + 5);
+    });
+
+    it('filters noise titles from activity summary', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.shortPool.set('memory.today', {
+            'VSCode': 100, 'New Tab': 50, '系统托盘溢出': 30, 'Chrome': 20
+        });
+        const ctx = eo._gatherLongTermContext('VSCode');
+        assert.ok(ctx.includes('Activity:'));
+        assert.ok(!ctx.includes('New Tab'));
+        assert.ok(!ctx.includes('系统托盘溢出'));
+        assert.ok(ctx.includes('100s'));
+    });
+
+    it('returns empty activity when all titles are noise', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.shortPool.set('memory.today', { 'New Tab': 50, 'Desktop': 30 });
+        const ctx = eo._gatherLongTermContext('test');
+        assert.ok(!ctx.includes('Activity:'));
+    });
+});
+
+// ========== Test: VLM message construction ==========
+
+describe('VLM message construction', () => {
+    let VLMExtractor, ShortTermPool, LongTermPool;
+
+    beforeEach(() => {
+        loadEnhanceModules('context-pool.js', 'enhance-utils.js', 'vlm-extractor.js');
+        ShortTermPool = global.window.ShortTermPool;
+        LongTermPool = global.window.LongTermPool;
+        VLMExtractor = global.window.VLMExtractor;
+    });
+
+    it('message includes window title', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let capturedMsgs = null;
+        const mockAI = { callAPI: async (msgs) => { capturedMsgs = msgs; return 'situation'; } };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        sp.set('memory.today', { 'React Tutorial': 30 });
+        await vlm.maybeExtract('React Tutorial', 'base64data', '');
+        assert.ok(capturedMsgs[1].content[0].text.includes('Window: React Tutorial'));
+    });
+
+    it('message includes background context when provided', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let capturedMsgs = null;
+        const mockAI = { callAPI: async (msgs) => { capturedMsgs = msgs; return 'situation'; } };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        sp.set('memory.today', { 'Test': 30 });
+        await vlm.maybeExtract('Test', 'base64data', 'Activity: VSCode: 120s\nKnowledge: React hooks');
+        const userText = capturedMsgs[1].content[0].text;
+        assert.ok(userText.includes('Background:'));
+        assert.ok(userText.includes('Activity: VSCode: 120s'));
+        assert.ok(userText.includes('Knowledge: React hooks'));
+    });
+
+    it('message omits Background when longTermContext is empty', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let capturedMsgs = null;
+        const mockAI = { callAPI: async (msgs) => { capturedMsgs = msgs; return 'situation'; } };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        sp.set('memory.today', { 'Test': 30 });
+        await vlm.maybeExtract('Test', 'base64data', '');
+        const userText = capturedMsgs[1].content[0].text;
+        assert.ok(!userText.includes('Background:'));
+    });
+
+    it('message omits Previous when no prior situation', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let capturedMsgs = null;
+        const mockAI = { callAPI: async (msgs) => { capturedMsgs = msgs; return 'situation'; } };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        sp.set('memory.today', { 'NewApp': 30 });
+        await vlm.maybeExtract('NewApp', 'base64data', '');
+        const userText = capturedMsgs[1].content[0].text;
+        assert.ok(!userText.includes('Previous:'));
+    });
+
+    it('system prompt uses vlmSituationPrompt with language', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let capturedMsgs = null;
+        const mockAI = { callAPI: async (msgs) => { capturedMsgs = msgs; return 'situation'; } };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        sp.set('memory.today', { 'Test': 30 });
+        await vlm.maybeExtract('Test', 'base64data', '');
+        assert.strictEqual(capturedMsgs[0].role, 'system');
+        // Should contain the vlmSituationPrompt key (since I18N mock doesn't have it, returns key)
+        assert.ok(capturedMsgs[0].content.includes('sys.vlmSituationPrompt') ||
+                  capturedMsgs[0].content.includes('context compressor'));
+    });
+
+    it('image is sent as image_url in user message', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let capturedMsgs = null;
+        const mockAI = { callAPI: async (msgs) => { capturedMsgs = msgs; return 'situation'; } };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        sp.set('memory.today', { 'Test': 30 });
+        await vlm.maybeExtract('Test', 'SCREENSHOT_DATA', '');
+        const imageContent = capturedMsgs[1].content[1];
+        assert.strictEqual(imageContent.type, 'image_url');
+        assert.ok(imageContent.image_url.url.includes('data:image/jpeg;base64,SCREENSHOT_DATA'));
+    });
+
+    it('situation output is truncated to 800 chars', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const longOutput = 'X'.repeat(1000);
+        const mockAI = { callAPI: async () => longOutput };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        sp.set('memory.today', { 'Test': 30 });
+        await vlm.maybeExtract('Test', 'base64data', '');
+        assert.strictEqual(vlm.situationMap['Test'].situation.length, 800);
+    });
+
+    it('promoted situation summary is truncated to 600 chars', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const longOutput = 'Y'.repeat(900);
+        const mockAI = { callAPI: async () => longOutput };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        vlm.promotionThreshold = 0;
+        sp.set('memory.today', { 'Test': 500 });
+        await vlm.maybeExtract('Test', 'base64data', '');
+        const persisted = lp.getForTitle('Test', 'vlm');
+        assert.ok(persisted);
+        assert.strictEqual(persisted.summary.length, 600);
+        assert.strictEqual(persisted.situation.length, 800);
+    });
+
+    it('duplicate output does not update timestamp', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const mockAI = { callAPI: async () => 'Same situation text' };
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        vlm.baseIntervalMs = 0;
+        sp.set('memory.today', { 'Test': 30 });
+
+        // First extraction — sets initial situation
+        await vlm.maybeExtract('Test', 'base64data', '');
+        const firstTimestamp = vlm.situationMap['Test'].timestamp;
+        assert.strictEqual(vlm.situationMap['Test'].situation, 'Same situation text');
+
+        // Reset extraction state for second call
+        vlm._extracting = false;
+        vlm._lastExtractTime = {};
+        vlm._intervals = {};
+
+        // Wait a bit so timestamp would differ
+        await new Promise(r => setTimeout(r, 20));
+
+        // Second extraction — same output, should NOT update timestamp
+        await vlm.maybeExtract('Test', 'base64data', '');
+        assert.strictEqual(vlm.situationMap['Test'].timestamp, firstTimestamp);
+        assert.strictEqual(vlm.situationMap['Test'].situation, 'Same situation text');
+    });
+
+    it('different output updates timestamp normally', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let callCount = 0;
+        const mockAI = { callAPI: async () => {
+            callCount++;
+            return callCount === 1 ? 'First situation' : 'Different situation';
+        }};
+        const vlm = new VLMExtractor(sp, lp, mockAI);
+        vlm.enabled = true;
+        vlm.minFocusSeconds = 0;
+        vlm.baseIntervalMs = 0;
+        sp.set('memory.today', { 'Test': 30 });
+
+        await vlm.maybeExtract('Test', 'base64data', '');
+        const firstTimestamp = vlm.situationMap['Test'].timestamp;
+
+        vlm._extracting = false;
+        vlm._lastExtractTime = {};
+        vlm._intervals = {};
+        await new Promise(r => setTimeout(r, 20));
+
+        await vlm.maybeExtract('Test', 'base64data', '');
+        assert.ok(vlm.situationMap['Test'].timestamp > firstTimestamp);
+        assert.strictEqual(vlm.situationMap['Test'].situation, 'Different situation');
+    });
+});
+
+// ========== Test: KnowledgeStore prompt construction ==========
+
+describe('KnowledgeStore prompt construction', () => {
+    let KnowledgeStore, ShortTermPool, LongTermPool;
+
+    beforeEach(() => {
+        loadEnhanceModules('context-pool.js', 'enhance-utils.js', 'knowledge-store.js');
+        ShortTermPool = global.window.ShortTermPool;
+        LongTermPool = global.window.LongTermPool;
+        KnowledgeStore = global.window.KnowledgeStore;
+    });
+
+    it('message includes window title and search results', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let capturedMsgs = null;
+        const mockAI = { callAPI: async (msgs) => { capturedMsgs = msgs; return '[Topic] summary'; } };
+        const ks = new KnowledgeStore(sp, lp, mockAI);
+        ks.enabled = true;
+        await ks.maybeUpdate('React Tutorial', 'React is a JS library for building UIs');
+        const userContent = capturedMsgs[1].content;
+        assert.ok(userContent.includes('Window: React Tutorial'));
+        assert.ok(userContent.includes('Search: React is a JS library'));
+    });
+
+    it('message includes RAG context from related knowledge', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        let capturedMsgs = null;
+        const mockAI = { callAPI: async (msgs) => { capturedMsgs = msgs; return '[Topic] summary'; } };
+        const ks = new KnowledgeStore(sp, lp, mockAI);
+        ks.enabled = true;
+        // Pre-populate related knowledge
+        lp.setForTitle('react hooks guide', 'knowledge', { summary: 'Hooks are functions for state' });
+        await ks.maybeUpdate('react hooks tutorial', 'New search results about hooks');
+        const userContent = capturedMsgs[1].content;
+        assert.ok(userContent.includes('Related knowledge:'));
+        assert.ok(userContent.includes('Hooks are functions'));
+    });
+
+    it('summary is truncated to 200 chars when stored', async () => {
+        const sp = new ShortTermPool();
+        const lp = new LongTermPool();
+        const longSummary = 'Z'.repeat(300);
+        const mockAI = { callAPI: async () => longSummary };
+        const ks = new KnowledgeStore(sp, lp, mockAI);
+        ks.enabled = true;
+        await ks.maybeUpdate('Test', 'search data');
+        const stored = lp.getForTitle('Test', 'knowledge');
+        assert.strictEqual(stored.summary.length, 200);
+    });
+});
+
+// ========== Test: PetPromptBuilder ==========
+
+describe('PetPromptBuilder', () => {
+    let PetPromptBuilder;
+
+    beforeEach(() => {
+        global.window = {
+            I18N: { en: {
+                'sys.responseMode': 'Respond quickly and naturally.',
+                'sys.importantReminder': 'IMPORTANT: Stay in character.',
+                'sys.useLanguage': 'Respond in {0}.',
+                'sys.screenContent': 'Screen Content',
+                'sys.secsAgo': 's ago',
+                'sys.minsAgo': 'min ago',
+                'sys.backgroundInfo': 'Background Info (no reaction needed)',
+                'sys.situationHistory': 'Recent context (continuity reference only, avoid repeating)'
+            } }
+        };
+        const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'prompt-builder.js'), 'utf-8');
+        eval(src);
+        PetPromptBuilder = global.window.PetPromptBuilder;
+    });
+
+    it('returns fallback when no character loaded', () => {
+        const pb = new PetPromptBuilder();
+        const prompt = pb.buildSystemPrompt('');
+        assert.ok(prompt.includes('desktop pet'));
+    });
+
+    it('builds prompt with character sections in correct order', () => {
+        const pb = new PetPromptBuilder();
+        pb.lang = 'en';
+        pb.characterPrompt = {
+            name: 'Yuki',
+            description: 'You are Yuki, a desktop companion.',
+            personality: 'Warm and friendly.',
+            scenario: 'Keep responses short.',
+            rules: 'Never break character.',
+            language: 'English'
+        };
+        const prompt = pb.buildSystemPrompt('');
+        // Check order: responseMode → description → personality → scenario → rules → language
+        const idxResponse = prompt.indexOf('Respond quickly');
+        const idxDesc = prompt.indexOf('You are Yuki');
+        const idxPersonality = prompt.indexOf('Warm and friendly');
+        const idxScenario = prompt.indexOf('Keep responses short');
+        const idxRules = prompt.indexOf('Never break character');
+        const idxLang = prompt.indexOf('Respond in English');
+        assert.ok(idxResponse < idxDesc, 'responseMode before description');
+        assert.ok(idxDesc < idxPersonality, 'description before personality');
+        assert.ok(idxPersonality < idxScenario, 'personality before scenario');
+        assert.ok(idxScenario < idxRules, 'scenario before rules');
+        assert.ok(idxRules < idxLang, 'rules before language');
+    });
+
+    it('injects dynamic context after rules separator', () => {
+        const pb = new PetPromptBuilder();
+        pb.lang = 'en';
+        pb.characterPrompt = {
+            name: 'Yuki',
+            description: 'You are Yuki.',
+            rules: 'Stay in character.',
+            language: 'English'
+        };
+        const dynamicCtx = '[Screen Content (5s ago)] User is coding in VSCode';
+        const prompt = pb.buildSystemPrompt(dynamicCtx);
+        assert.ok(prompt.includes(dynamicCtx));
+        // Dynamic context should be after rules
+        const idxRules = prompt.indexOf('Stay in character');
+        const idxDynamic = prompt.indexOf('User is coding');
+        assert.ok(idxDynamic > idxRules, 'dynamic context after rules');
+        // Dynamic context should be before language
+        const idxLang = prompt.indexOf('Respond in English');
+        assert.ok(idxDynamic < idxLang, 'dynamic context before language');
+    });
+
+    it('resolves template variables', () => {
+        const pb = new PetPromptBuilder();
+        pb.characterPrompt = {
+            name: 'Miku',
+            userIdentity: 'master',
+            userTerm: 'you',
+            description: 'You are {{petName}}, {{userIdentity}}\'s companion.'
+        };
+        const resolved = pb.resolveTemplate(pb.characterPrompt.description);
+        assert.ok(resolved.includes('Miku'));
+        assert.ok(resolved.includes('master'));
+        assert.ok(!resolved.includes('{{petName}}'));
+    });
+
+    it('separates sections with --- dividers', () => {
+        const pb = new PetPromptBuilder();
+        pb.lang = 'en';
+        pb.characterPrompt = {
+            description: 'Desc.',
+            rules: 'Rules here.'
+        };
+        const prompt = pb.buildSystemPrompt('dynamic context');
+        const separators = prompt.split('---').length - 1;
+        assert.ok(separators >= 2, 'at least 2 --- separators (rules + dynamic)');
+    });
+});
+
+// ========== Test: buildEnhancedContext timestamp formatting ==========
+
+describe('buildEnhancedContext timestamp formatting', () => {
+    let EnhancementOrchestrator;
+
+    beforeEach(() => {
+        loadEnhanceModules('context-pool.js', 'enhance-utils.js', 'memory-tracker.js',
+            'search-service.js', 'knowledge-store.js', 'vlm-extractor.js', 'enhancement-orchestrator.js');
+        EnhancementOrchestrator = global.window.EnhancementOrchestrator;
+    });
+
+    it('shows seconds for age < 60s', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.vlmExtractor.situationMap['Test'] = {
+            situation: 'User is coding', timestamp: Date.now() - 30000, focusSec: 20
+        };
+        const ctx = eo.buildEnhancedContext('Test');
+        assert.ok(ctx.includes('30'));
+        assert.ok(!ctx.includes('min'));
+    });
+
+    it('shows minutes for age >= 60s', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.vlmExtractor.situationMap['Test'] = {
+            situation: 'User is coding', timestamp: Date.now() - 120000, focusSec: 20
+        };
+        const ctx = eo.buildEnhancedContext('Test');
+        assert.ok(ctx.includes('2'));
+    });
+
+    it('sanitizes secrets in output', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo.vlmExtractor.situationMap['Test'] = {
+            situation: 'User has token sk_live_abcdefghijklmnopqrst visible',
+            timestamp: Date.now(), focusSec: 20
+        };
+        const ctx = eo.buildEnhancedContext('Test');
+        assert.ok(ctx.includes('[***]'));
+        assert.ok(!ctx.includes('abcdefghijklmnopqrst'));
+    });
+
+    it('does not fall back when current title has sufficient focus', () => {
+        const eo = new EnhancementOrchestrator(null);
+        eo._minFocusSeconds = 10;
+        eo.shortPool.set('memory.today', { 'Current': 30 });
+        // No situation for 'Current', but has focus → should NOT fall back
+        eo.vlmExtractor.situationMap['Other'] = {
+            situation: 'Other app', timestamp: Date.now(), focusSec: 60
+        };
+        const ctx = eo.buildEnhancedContext('Current');
+        // No situation for Current and focus >= minFocus → empty (no fallback)
+        assert.strictEqual(ctx, '');
     });
 });
