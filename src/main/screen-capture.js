@@ -2,57 +2,80 @@
  * ScreenCapture — Screen capture, window detection, idle time.
  * Extracted from main.js lines 488-530.
  */
+
+/** Release NativeImage references to free GPU/process memory sooner */
+function releaseSources(sources) {
+    if (!sources) return;
+    for (const s of sources) try { s.thumbnail = null; s.appIcon = null; } catch {}
+}
+
 function registerScreenCapture(ctx, ipcMain, deps) {
     // deps: { desktopCapturer, powerMonitor }
     const { desktopCapturer, powerMonitor } = deps;
 
     ipcMain.handle('get-screen-capture', async (event, targetTitle) => {
+        let winSources = null, sources = null;
         try {
-            // If a window title is given, try capturing only that window (excludes pet overlay)
             if (targetTitle) {
-                const winSources = await desktopCapturer.getSources({
+                winSources = await desktopCapturer.getSources({
                     types: ['window'], thumbnailSize: { width: 512, height: 512 }
                 });
                 const match = winSources.find(s => s.name === targetTitle);
                 if (match) {
-                    return match.thumbnail.toJPEG(30).toString('base64');
+                    const result = match.thumbnail.toJPEG(30).toString('base64');
+                    releaseSources(winSources);
+                    return result;
                 }
+                releaseSources(winSources);
+                winSources = null;
             }
-            // Fallback: full screen capture
-            const sources = await desktopCapturer.getSources({
+            sources = await desktopCapturer.getSources({
                 types: ['screen'], thumbnailSize: { width: 512, height: 512 }
             });
             if (sources.length > 0) {
-                return sources[0].thumbnail.toJPEG(30).toString('base64');
+                const result = sources[0].thumbnail.toJPEG(30).toString('base64');
+                releaseSources(sources);
+                return result;
             }
+            releaseSources(sources);
             return null;
         } catch (error) {
+            releaseSources(winSources);
+            releaseSources(sources);
             console.error('Screen capture failed:', error);
             return null;
         }
     });
 
-    // High-quality window capture: targets specific window at 1024px, excludes pet overlay
     ipcMain.handle('get-screen-capture-hq', async (event, targetTitle) => {
+        let winSources = null, sources = null;
         try {
             if (targetTitle) {
-                const winSources = await desktopCapturer.getSources({
-                    types: ['window'], thumbnailSize: { width: 1024, height: 1024 }
+                winSources = await desktopCapturer.getSources({
+                    types: ['window'], thumbnailSize: { width: 768, height: 768 }
                 });
                 const match = winSources.find(s => s.name === targetTitle);
                 if (match) {
-                    return match.thumbnail.toJPEG(50).toString('base64');
+                    const result = match.thumbnail.toJPEG(40).toString('base64');
+                    releaseSources(winSources);
+                    return result;
                 }
+                releaseSources(winSources);
+                winSources = null;
             }
-            // Fallback: full screen at higher quality
-            const sources = await desktopCapturer.getSources({
-                types: ['screen'], thumbnailSize: { width: 1024, height: 1024 }
+            sources = await desktopCapturer.getSources({
+                types: ['screen'], thumbnailSize: { width: 768, height: 768 }
             });
             if (sources.length > 0) {
-                return sources[0].thumbnail.toJPEG(50).toString('base64');
+                const result = sources[0].thumbnail.toJPEG(40).toString('base64');
+                releaseSources(sources);
+                return result;
             }
+            releaseSources(sources);
             return null;
         } catch (error) {
+            releaseSources(winSources);
+            releaseSources(sources);
             console.error('HQ screen capture failed:', error);
             return null;
         }

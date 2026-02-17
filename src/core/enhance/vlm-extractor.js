@@ -31,13 +31,13 @@ class VLMExtractor {
 
         // Mipmap screenshot levels: L0 full, L1 half, L2 quarter
         this._mipmapLevels = [
-            { maxSize: 2, scale: 1.0, entries: [] },
-            { maxSize: 2, scale: 0.5, entries: [] },
+            { maxSize: 1, scale: 1.0, entries: [] },
+            { maxSize: 1, scale: 0.5, entries: [] },
             { maxSize: 1, scale: 0.25, entries: [] }
         ];
 
         // Independent capture timer
-        this._captureTimerMs = 3000;
+        this._captureTimerMs = 5000;
         this._captureTimer = null;
         this._captureActive = false;
         this._contextGatherer = null;
@@ -49,8 +49,8 @@ class VLMExtractor {
         // Keyframe buffer (mid-term visual memory)
         this._kfCandidates = [];       // candidate ring buffer
         this._kfSelected = [];          // LLM-selected keyframes
-        this._kfCandidateMax = 20;
-        this._kfSelectedMax = 5;
+        this._kfCandidateMax = 10;
+        this._kfSelectedMax = 3;
         this._kfSampleInterval = 5;     // sample every N capture ticks (=15s at 3s tick)
         this._kfSampleCounter = 0;
         this._kfSelectIntervalMs = 120000; // LLM selection every 2 min

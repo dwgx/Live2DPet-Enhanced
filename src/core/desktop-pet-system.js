@@ -675,9 +675,9 @@ class DesktopPetSystem {
             const hitContext = this._buildHitContext();
             const textPrompt = this.promptBuilder.getAppDetectionPrompt(this._shortenTitle(appName, 50) + boundsInfo) + hitContext;
 
-            // Gather screenshots: HQ fresh capture (window-targeted) + older from mipmap
+            // Gather screenshots: HQ fresh capture + one older from mipmap
             const screenshots = [];
-            const maxScreenshots = 3;
+            const maxScreenshots = 2;
             if (window.electronAPI?.getScreenCaptureHQ) {
                 try {
                     const fresh = await window.electronAPI.getScreenCaptureHQ(appName);
@@ -690,11 +690,9 @@ class DesktopPetSystem {
                     if (fresh) screenshots.push({ base64: fresh, timestamp: Date.now() });
                 } catch (e) {}
             }
-            // Add older screenshots from mipmap (L1/L2, already downsampled) for temporal context
             if (this.enhancer?.vlmExtractor) {
-                const older = this.enhancer.vlmExtractor.getScreenshotsForMainAI(2);
+                const older = this.enhancer.vlmExtractor.getScreenshotsForMainAI(1);
                 for (const entry of older) {
-                    // Skip if same as fresh capture (L0 latest ≈ fresh)
                     if (screenshots.length > 0 && entry.base64 === screenshots[0].base64) continue;
                     if (screenshots.length < maxScreenshots) screenshots.push(entry);
                 }
@@ -707,7 +705,7 @@ class DesktopPetSystem {
 
             // Keyframe context (mid-term visual memory)
             if (this.enhancer?.vlmExtractor) {
-                const keyframes = await this.enhancer.vlmExtractor.getKeyframesForMainAI(3);
+                const keyframes = await this.enhancer.vlmExtractor.getKeyframesForMainAI(2);
                 if (keyframes.length > 0) {
                     const now = Date.now();
                     const kfContent = [{ type: 'text', text: this._t('sys.kfLabel') }];

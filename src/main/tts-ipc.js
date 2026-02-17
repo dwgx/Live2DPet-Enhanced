@@ -2,6 +2,81 @@
  * TTS IPC — TTS synthesis, VOICEVOX setup, VVM management.
  * Extracted from main.js lines 939-1153.
  */
+
+/**
+ * Split Japanese text at sentence-ending punctuation for chunked TTS.
+ * Keeps consecutive punctuation + decorative chars (……♡～) as a unit.
+ */
+function splitForTTS(text, maxLen = 80) {
+    if (!text || text.length <= maxLen) return [text];
+    const parts = [];
+    let last = 0;
+    const re = /[。！？]+[…♡♪～☆]*/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        parts.push(text.slice(last, m.index + m[0].length));
+        last = m.index + m[0].length;
+    }
+    if (last < text.length) parts.push(text.slice(last));
+
+    // Merge short segments so each chunk is reasonably sized
+    const chunks = [];
+    let buf = '';
+    for (const seg of parts) {
+        if (buf.length + seg.length > maxLen && buf.length > 0) {
+            chunks.push(buf);
+            buf = '';
+        }
+        buf += seg;
+    }
+    if (buf) chunks.push(buf);
+    return chunks;
+}
+
+/**
+ * Concatenate multiple WAV buffers (same format) into one.
+ * Strips headers, merges PCM data, writes new header.
+ */
+function concatWavBuffers(buffers) {
+    if (buffers.length === 0) return null;
+    if (buffers.length === 1) return buffers[0];
+
+    // Read format from first buffer's header (bytes 0-43)
+    const hdr = buffers[0];
+    const numChannels = hdr.readUInt16LE(22);
+    const sampleRate = hdr.readUInt32LE(24);
+    const bitsPerSample = hdr.readUInt16LE(34);
+    const blockAlign = numChannels * (bitsPerSample / 8);
+    const byteRate = sampleRate * blockAlign;
+
+    // Extract PCM data (skip 44-byte header) from each buffer
+    const pcmParts = buffers.map(b => b.slice(44));
+    const totalPcmLen = pcmParts.reduce((sum, p) => sum + p.length, 0);
+
+    // Build new WAV: 44-byte header + combined PCM
+    const out = Buffer.alloc(44 + totalPcmLen);
+    out.write('RIFF', 0);
+    out.writeUInt32LE(36 + totalPcmLen, 4);
+    out.write('WAVE', 8);
+    out.write('fmt ', 12);
+    out.writeUInt32LE(16, 16);          // fmt chunk size
+    out.writeUInt16LE(1, 20);           // PCM format
+    out.writeUInt16LE(numChannels, 22);
+    out.writeUInt32LE(sampleRate, 24);
+    out.writeUInt32LE(byteRate, 28);
+    out.writeUInt16LE(blockAlign, 32);
+    out.writeUInt16LE(bitsPerSample, 34);
+    out.write('data', 36);
+    out.writeUInt32LE(totalPcmLen, 40);
+
+    let offset = 44;
+    for (const pcm of pcmParts) {
+        pcm.copy(out, offset);
+        offset += pcm.length;
+    }
+    return out;
+}
+
 function registerTTSIPC(ctx, ipcMain, deps) {
     // deps: { configManager, fs, path, app, mt }
     const { configManager, fs, path, app, mt } = deps;
@@ -17,9 +92,22 @@ function registerTTSIPC(ctx, ipcMain, deps) {
             }
             console.log(`[TTS] CN: ${text}`);
             console.log(`[TTS] JA: ${jaText}`);
-            const wavBuf = ctx.ttsService.synthesize(jaText);
-            if (!wavBuf) return { success: false, error: 'synthesis failed' };
-            return { success: true, wav: wavBuf.toString('base64'), jaText };
+
+            const chunks = splitForTTS(jaText);
+            const rss0 = Math.round(process.memoryUsage().rss / 1024 / 1024);
+
+            const wavBufs = [];
+            for (const chunk of chunks) {
+                const buf = ctx.ttsService.synthesize(chunk);
+                if (buf) wavBufs.push(buf);
+            }
+            if (wavBufs.length === 0) return { success: false, error: 'synthesis failed' };
+
+            const combined = concatWavBuffers(wavBufs);
+            const rss1 = Math.round(process.memoryUsage().rss / 1024 / 1024);
+            console.log(`[TTS] ${chunks.length} chunk(s), RSS: ${rss0}→${rss1} MB`);
+
+            return { success: true, wav: combined.toString('base64'), jaText };
         } catch (error) {
             return { success: false, error: error.message };
         }
