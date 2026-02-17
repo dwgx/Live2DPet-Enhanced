@@ -7,6 +7,9 @@
 - HQ window-targeted screenshots: new `getScreenCaptureHQ` captures the active window at higher quality
 - Style buffer replaces conversation history: no text history sent to API, only style buffer for anti-repetition
 - Enhanced anti-repetition: detects similar response length, exclamation overuse, ellipsis overuse
+- Recent discussion pool: timestamped response pool with LLM-based topic/habit extraction for semantic anti-repetition
+- Fix: prune expired pool entries before structural pattern detection
+- Cleanup: removed 12 dead i18n keys (sys.historyScreenshot, sys.searchQueryPrompt, etc.) from suspended text pipeline
 - Enhancement system simplified: text pipeline (search, knowledge, memory, VLM situation) suspended, keyframe-only mode
 - Detection interval reduced (30s → 10s), idle threshold raised (10s → 60s), desktop layout default off
 - Settings UI streamlined, AI-ARCHITECTURE.md removed
@@ -19,6 +22,9 @@
 - HQ 窗口定向截图：新增 `getScreenCaptureHQ` 针对活动窗口高清截图
 - Style Buffer 替代对话历史：不再向 API 发送文本历史，仅保留风格缓冲用于反重复
 - 反重复增强：新增长度相似、感叹号过多、省略号过多检测
+- 近期讨论池：带时间戳的响应池 + LLM 话题/语癖提取，实现语义级反重复
+- 修复：结构模式检测前剪枝过期条目
+- 清理：移除已弃置文本管线遗留的 12 个死 i18n 键
 - 增强系统精简：文本管线（搜索/知识/记忆/VLM情景）暂停使用，仅保留关键帧模式
 - 检测间隔缩短（30s→10s），空闲阈值提高（10s→60s），桌面布局默认关闭
 - 设置界面精简，删除 AI-ARCHITECTURE.md
@@ -33,6 +39,9 @@
 - HQウィンドウターゲットスクリーンショット：新しい `getScreenCaptureHQ` でアクティブウィンドウを高品質キャプチャ
 - スタイルバッファが会話履歴を置換：テキスト履歴をAPIに送信せず、反復防止用のスタイルバッファのみ
 - 反復防止の強化：類似応答長、感嘆符多用、省略記号多用を検出
+- 最近の議論プール：タイムスタンプ付き応答プール + LLMによる話題/口癖抽出で意味的反復防止
+- 修正：構造パターン検出前に期限切れエントリを剪定
+- クリーンアップ：停止中のテキストパイプラインから残存していた12個の未使用i18nキーを削除
 - 拡張システム簡素化：テキストパイプライン（検索/知識/記憶/VLM状況）一時停止、キーフレームのみモード
 - 検出間隔短縮（30s→10s）、アイドル閾値引き上げ（10s→60s）、デスクトップレイアウトデフォルトオフ
 - 設定UIの簡素化、AI-ARCHITECTURE.md削除

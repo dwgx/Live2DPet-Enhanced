@@ -27,8 +27,9 @@ class DesktopPetSystem {
         this.focusTimer = null;
         this.focusTracker = {};
 
-        // Style buffer: stores recent assistant responses for anti-repetition (no text history sent to API)
-        this.styleBuffer = { responses: [], maxResponses: 4 };
+        // Recent discussion pool: timestamped responses + LLM analysis for anti-repetition
+        this.recentPool = [];       // [{response, timestamp, analysis}]
+        this.recentPoolTTL = 30000; // 30s expiry
 
         // Message double-buffer: always play the latest, skip stale ones
         this.pendingMessage = null;   // next message to play (overwritten by newer)
@@ -145,7 +146,7 @@ class DesktopPetSystem {
         } catch (e) {}
         this.isActive = false;
         this.focusTracker = {};
-        this.styleBuffer.responses = [];
+        this.recentPool = [];
         this._hitBuffer = [];
         this._hitCount = 0;
         this.pendingMessage = null;
@@ -226,12 +227,17 @@ class DesktopPetSystem {
             parts.push(this._t('sys.windowUsage') + focusEntries);
         }
 
-        // Anti-repetition: detect repeated patterns in recent assistant responses
-        const recentAssistant = this.styleBuffer.responses.slice(-4);
-        if (recentAssistant.length >= 2) {
-            const hint = this._detectRepetition(recentAssistant);
+        // Anti-repetition: structural pattern detection from recent pool
+        this._pruneRecentPool();
+        const recentResponses = this.recentPool.map(e => e.response);
+        if (recentResponses.length >= 2) {
+            const hint = this._detectRepetition(recentResponses.slice(-4));
             if (hint) parts.push(hint);
         }
+
+        // Anti-repetition: semantic topic/habit avoidance from LLM analysis
+        const poolContext = this._buildPoolContext();
+        if (poolContext) parts.push(poolContext);
 
         return parts.join('\n');
     }
@@ -462,6 +468,85 @@ class DesktopPetSystem {
         return '\n' + this._t('sys.hitContext').replace('{0}', parts.join(','));
     }
 
+    // ========== Recent Discussion Pool ==========
+
+    /**
+     * Prune expired entries from the recent pool.
+     */
+    _pruneRecentPool() {
+        const now = Date.now();
+        this.recentPool = this.recentPool.filter(e => now - e.timestamp < this.recentPoolTTL);
+    }
+
+    /**
+     * Fire-and-forget: call LLM to extract topics and speech habits from a response.
+     */
+    async _analyzeResponse(entry) {
+        if (!this.aiClient?.isConfigured()) return;
+        try {
+            const prompt = this._t('sys.analyzePrompt');
+            const result = await this.aiClient.callAPI([
+                { role: 'system', content: prompt },
+                { role: 'user', content: entry.response }
+            ]);
+            if (result) {
+                const parsed = this._parseAnalysis(result);
+                if (parsed) {
+                    entry.analysis = parsed;
+                    console.log('[DesktopPetSystem] Analysis:', JSON.stringify(parsed));
+                }
+            }
+        } catch (e) {
+            console.warn('[DesktopPetSystem] Analysis error:', e.message);
+        }
+    }
+
+    /**
+     * Parse JSON analysis from LLM response.
+     */
+    _parseAnalysis(text) {
+        if (!text) return null;
+        try {
+            const parsed = JSON.parse(text);
+            if (parsed.topics || parsed.habits) return parsed;
+        } catch {}
+        const match = text.match(/\{[\s\S]*?\}/);
+        if (match) {
+            try {
+                const parsed = JSON.parse(match[0]);
+                if (parsed.topics || parsed.habits) return parsed;
+            } catch {}
+        }
+        return null;
+    }
+
+    /**
+     * Build avoidance context from recent pool analyses.
+     */
+    _buildPoolContext() {
+        this._pruneRecentPool();
+        const analyses = this.recentPool
+            .filter(e => e.analysis)
+            .map(e => e.analysis);
+        if (analyses.length === 0) return '';
+
+        const parts = [];
+
+        // Collect all topics
+        const topics = [...new Set(analyses.flatMap(a => a.topics || []))];
+        if (topics.length > 0) {
+            parts.push(this._t('sys.topicAvoid').replace('{0}', topics.join('、')));
+        }
+
+        // Collect all habits
+        const habits = [...new Set(analyses.flatMap(a => a.habits || []))];
+        if (habits.length > 0) {
+            parts.push(this._t('sys.habitAvoid').replace('{0}', habits.join('、')));
+        }
+
+        return parts.join('\n');
+    }
+
     // ========== Message Double-Buffer ==========
 
     /**
@@ -673,11 +758,11 @@ class DesktopPetSystem {
             }
 
             if (response) {
-                // Store response in style buffer for anti-repetition
-                this.styleBuffer.responses.push(response);
-                while (this.styleBuffer.responses.length > this.styleBuffer.maxResponses) {
-                    this.styleBuffer.responses.shift();
-                }
+                // Store response in recent pool for anti-repetition analysis
+                const entry = { response, timestamp: Date.now(), analysis: null };
+                this.recentPool.push(entry);
+                this._analyzeResponse(entry).catch(e =>
+                    console.warn('[DesktopPetSystem] Analysis failed:', e.message));
 
                 // Double-buffer: overwrite pending with latest
                 this.pendingMessage = response;
