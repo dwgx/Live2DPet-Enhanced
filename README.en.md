@@ -115,7 +115,7 @@ If the in-app one-click install fails, you can download and place the files manu
 | ONNX Runtime (GPU) | No | [voicevox_onnxruntime-win-x64-dml-1.17.3.tgz](https://github.com/VOICEVOX/onnxruntime-builder/releases/download/voicevox_onnxruntime-1.17.3/voicevox_onnxruntime-win-x64-dml-1.17.3.tgz) |
 | Open JTalk Dictionary | Yes | [open_jtalk_dic_utf_8-1.11.tar.gz](https://sourceforge.net/projects/open-jtalk/files/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz/download) |
 | Default Voice Model | Yes | [0.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/0.vvm) |
-| Other Voice Models | No | [1.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/1.vvm) ~ [23.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/23.vvm) |
+| Other Voice Models | No | [vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/) |
 
 **Expected directory structure after extraction**:
 
