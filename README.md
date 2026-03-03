@@ -97,6 +97,49 @@ node launch.js
 
 支持 GPU 加速（DirectML）。AI 回复会自动翻译为日语并语音播放。
 
+<details>
+<summary>手动安装 VOICEVOX 组件</summary>
+
+如果应用内一键安装失败，可以手动下载并放置文件。
+
+**安装位置**: `C:\Users\你的用户名\AppData\Roaming\live2dpet\voicevox_core`
+
+> 将「你的用户名」替换为你的 Windows 用户名。
+
+**下载链接**:
+
+| 组件 | 必须 | 下载链接 |
+|------|------|----------|
+| VOICEVOX Core | 是 | [voicevox_core-windows-x64-0.16.3.zip](https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.3/voicevox_core-windows-x64-0.16.3.zip) |
+| ONNX Runtime (CPU) | 是 | [voicevox_onnxruntime-win-x64-1.17.3.tgz](https://github.com/VOICEVOX/onnxruntime-builder/releases/download/voicevox_onnxruntime-1.17.3/voicevox_onnxruntime-win-x64-1.17.3.tgz) |
+| ONNX Runtime (GPU) | 否 | [voicevox_onnxruntime-win-x64-dml-1.17.3.tgz](https://github.com/VOICEVOX/onnxruntime-builder/releases/download/voicevox_onnxruntime-1.17.3/voicevox_onnxruntime-win-x64-dml-1.17.3.tgz) |
+| Open JTalk 辞書 | 是 | [open_jtalk_dic_utf_8-1.11.tar.gz](https://sourceforge.net/projects/open-jtalk/files/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz/download) |
+| 默认语音模型 | 是 | [0.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/0.vvm) |
+| 其他语音模型 | 否 | [1.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/1.vvm) ~ [23.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/23.vvm) |
+
+**解压后的目录结构**:
+
+```
+voicevox_core/
+├── c_api/
+│   └── voicevox_core-windows-x64-0.16.3/
+│       └── lib/
+│           └── voicevox_core.dll
+├── voicevox_onnxruntime-win-x64-1.17.3/
+│   └── lib/
+│       └── voicevox_onnxruntime.dll
+├── open_jtalk_dic_utf_8-1.11/
+│   ├── sys.dic
+│   └── ...
+└── models/
+    ├── 0.vvm
+    └── ...
+```
+
+将下载的文件解压到上述对应位置，`.vvm` 文件放入 `models/` 文件夹，然后重启应用即可。
+
+</details>
+
 ### 4. 自定义角色人设
 
 在「角色」标签页新增角色卡，编辑角色的名称、性格、行为规则等。支持模板变量 `{{petName}}`、`{{userIdentity}}`。

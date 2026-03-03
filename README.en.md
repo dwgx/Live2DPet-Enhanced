@@ -97,6 +97,49 @@ Image folders (PNG/JPG/WebP) are also supported as character visuals — see "Im
 
 Supports GPU acceleration (DirectML). AI responses are auto-translated to Japanese and spoken aloud.
 
+<details>
+<summary>Manual VOICEVOX Installation</summary>
+
+If the in-app one-click install fails, you can download and place the files manually.
+
+**Install location**: `C:\Users\YourUsername\AppData\Roaming\live2dpet\voicevox_core`
+
+> Replace "YourUsername" with your Windows username.
+
+**Download links**:
+
+| Component | Required | Download |
+|-----------|----------|----------|
+| VOICEVOX Core | Yes | [voicevox_core-windows-x64-0.16.3.zip](https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.3/voicevox_core-windows-x64-0.16.3.zip) |
+| ONNX Runtime (CPU) | Yes | [voicevox_onnxruntime-win-x64-1.17.3.tgz](https://github.com/VOICEVOX/onnxruntime-builder/releases/download/voicevox_onnxruntime-1.17.3/voicevox_onnxruntime-win-x64-1.17.3.tgz) |
+| ONNX Runtime (GPU) | No | [voicevox_onnxruntime-win-x64-dml-1.17.3.tgz](https://github.com/VOICEVOX/onnxruntime-builder/releases/download/voicevox_onnxruntime-1.17.3/voicevox_onnxruntime-win-x64-dml-1.17.3.tgz) |
+| Open JTalk Dictionary | Yes | [open_jtalk_dic_utf_8-1.11.tar.gz](https://sourceforge.net/projects/open-jtalk/files/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz/download) |
+| Default Voice Model | Yes | [0.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/0.vvm) |
+| Other Voice Models | No | [1.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/1.vvm) ~ [23.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/23.vvm) |
+
+**Expected directory structure after extraction**:
+
+```
+voicevox_core/
+├── c_api/
+│   └── voicevox_core-windows-x64-0.16.3/
+│       └── lib/
+│           └── voicevox_core.dll
+├── voicevox_onnxruntime-win-x64-1.17.3/
+│   └── lib/
+│       └── voicevox_onnxruntime.dll
+├── open_jtalk_dic_utf_8-1.11/
+│   ├── sys.dic
+│   └── ...
+└── models/
+    ├── 0.vvm
+    └── ...
+```
+
+Extract downloaded files to the corresponding paths above, place `.vvm` files in the `models/` folder, then restart the app.
+
+</details>
+
 ### 4. Customize Character
 
 In the "Character" tab, create a new character card and edit the character's name, personality, and behavior rules. Supports template variables `{{petName}}` and `{{userIdentity}}`.

@@ -65,10 +65,12 @@ class TranslationService {
                     messages: [
                         {
                             role: 'system',
-                            content: 'あなたは翻訳機です。入力文を自然な日本語の完全な文に翻訳してください。英単語はカタカナに変換（例: YouTube→ユーチューブ、Discord→ディスコード）。翻訳結果の文だけを出力。説明・補足・比較・単語リスト・ローマ字は不要。出力にアルファベットを含めないこと。口調と感情を保持。'
+                            content: 'あなたは翻訳機です。入力文を忠実に日本語へ翻訳してください。意味を変えず、追加・省略せず、原文の口調と感情をそのまま保持すること。入力が既に日本語の場合はそのまま出力。英単語のみカタカナに変換（例: YouTube→ユーチューブ）。翻訳結果の文だけを出力。説明・補足・比較は不要。出力にアルファベットを含めないこと。'
                         },
-                        { role: 'user', content: '嘻嘻……你在看YouTube上的ASMR吧，杂鱼哥哥真是变态呢~' },
-                        { role: 'assistant', content: 'うふふ……ユーチューブでエーエスエムアール見てるでしょ、雑魚お兄ちゃんって本当に変態だよね～' },
+                        { role: 'user', content: '你今天在YouTube上看了什么？' },
+                        { role: 'assistant', content: '今日ユーチューブで何を見たの？' },
+                        { role: 'user', content: 'やれやれ……まだバグ直してないの？' },
+                        { role: 'assistant', content: 'やれやれ……まだバグ直してないの？' },
                         { role: 'user', content: text }
                     ],
                     max_tokens: 1024,

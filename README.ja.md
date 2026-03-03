@@ -97,6 +97,49 @@ node launch.js
 
 GPU アクセラレーション（DirectML）対応。AI の応答は自動的に日本語に翻訳され、音声で再生されます。
 
+<details>
+<summary>VOICEVOX コンポーネントの手動インストール</summary>
+
+アプリ内のワンクリックインストールが失敗した場合、手動でファイルをダウンロードして配置できます。
+
+**インストール先**: `C:\Users\ユーザー名\AppData\Roaming\live2dpet\voicevox_core`
+
+> 「ユーザー名」をお使いの Windows ユーザー名に置き換えてください。
+
+**ダウンロードリンク**:
+
+| コンポーネント | 必須 | ダウンロード |
+|----------------|------|--------------|
+| VOICEVOX Core | はい | [voicevox_core-windows-x64-0.16.3.zip](https://github.com/VOICEVOX/voicevox_core/releases/download/0.16.3/voicevox_core-windows-x64-0.16.3.zip) |
+| ONNX Runtime (CPU) | はい | [voicevox_onnxruntime-win-x64-1.17.3.tgz](https://github.com/VOICEVOX/onnxruntime-builder/releases/download/voicevox_onnxruntime-1.17.3/voicevox_onnxruntime-win-x64-1.17.3.tgz) |
+| ONNX Runtime (GPU) | いいえ | [voicevox_onnxruntime-win-x64-dml-1.17.3.tgz](https://github.com/VOICEVOX/onnxruntime-builder/releases/download/voicevox_onnxruntime-1.17.3/voicevox_onnxruntime-win-x64-dml-1.17.3.tgz) |
+| Open JTalk 辞書 | はい | [open_jtalk_dic_utf_8-1.11.tar.gz](https://sourceforge.net/projects/open-jtalk/files/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz/download) |
+| デフォルト音声モデル | はい | [0.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/0.vvm) |
+| その他の音声モデル | いいえ | [1.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/1.vvm) ~ [23.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/23.vvm) |
+
+**解凍後のディレクトリ構造**:
+
+```
+voicevox_core/
+├── c_api/
+│   └── voicevox_core-windows-x64-0.16.3/
+│       └── lib/
+│           └── voicevox_core.dll
+├── voicevox_onnxruntime-win-x64-1.17.3/
+│   └── lib/
+│       └── voicevox_onnxruntime.dll
+├── open_jtalk_dic_utf_8-1.11/
+│   ├── sys.dic
+│   └── ...
+└── models/
+    ├── 0.vvm
+    └── ...
+```
+
+ダウンロードしたファイルを上記の対応するパスに解凍し、`.vvm` ファイルを `models/` フォルダに配置してから、アプリを再起動してください。
+
+</details>
+
 ### 4. キャラクターのカスタマイズ
 
 「キャラクター」タブで新しいキャラクターカードを作成し、名前、性格、行動ルールを編集。テンプレート変数 `{{petName}}`、`{{userIdentity}}` に対応。
