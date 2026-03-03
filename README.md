@@ -115,7 +115,7 @@ node launch.js
 | ONNX Runtime (GPU) | 否 | [voicevox_onnxruntime-win-x64-dml-1.17.3.tgz](https://github.com/VOICEVOX/onnxruntime-builder/releases/download/voicevox_onnxruntime-1.17.3/voicevox_onnxruntime-win-x64-dml-1.17.3.tgz) |
 | Open JTalk 辞書 | 是 | [open_jtalk_dic_utf_8-1.11.tar.gz](https://sourceforge.net/projects/open-jtalk/files/Dictionary/open_jtalk_dic-1.11/open_jtalk_dic_utf_8-1.11.tar.gz/download) |
 | 默认语音模型 | 是 | [0.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/0.vvm) |
-| 其他语音模型 | 否 | [1.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/1.vvm) ~ [23.vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/download/0.16.3/23.vvm) |
+| 其他语音模型 | 否 | [vvm](https://github.com/VOICEVOX/voicevox_vvm/releases/)|
 
 **解压后的目录结构**:
 
