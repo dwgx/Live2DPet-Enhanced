@@ -2129,23 +2129,69 @@ loadVvmConfig();
 
 // ========== Memory Settings ==========
 
+async function loadMemorySettings() {
+    if (!window.electronAPI?.loadConfig) return;
+    try {
+        const config = await window.electronAPI.loadConfig();
+        const memoryConfig = config.memory || {};
+
+        document.getElementById('memory-enabled').checked = memoryConfig.enabled !== false;
+        document.getElementById('memory-max').value = memoryConfig.maxMemories || 2000;
+        document.getElementById('memory-short-term').value = memoryConfig.shortTermLimit || 8;
+        document.getElementById('memory-long-term').value = memoryConfig.longTermRetrievalLimit || 3;
+        document.getElementById('memory-auto-save').checked = memoryConfig.autoSave !== false;
+    } catch (e) {
+        console.error('[Memory] Failed to load settings:', e);
+    }
+}
+
 document.getElementById('btn-save-memory-settings')?.addEventListener('click', async () => {
     const enabled = document.getElementById('memory-enabled')?.checked ?? true;
     const maxMemories = parseInt(document.getElementById('memory-max')?.value || '2000');
+    const shortTermLimit = parseInt(document.getElementById('memory-short-term')?.value || '8');
+    const longTermRetrievalLimit = parseInt(document.getElementById('memory-long-term')?.value || '3');
+    const autoSave = document.getElementById('memory-auto-save')?.checked ?? true;
+
+    const memoryConfig = {
+        enabled,
+        maxMemories,
+        shortTermLimit,
+        longTermRetrievalLimit,
+        autoSave,
+        includeRelevant: longTermRetrievalLimit > 0
+    };
 
     if (petSystem?.memorySystem) {
-        petSystem.memorySystem.maxMemories = maxMemories;
+        petSystem.memorySystem.configure(memoryConfig);
         if (!enabled) {
             petSystem.memorySystem.clear();
         }
     }
 
-    await window.electronAPI?.saveConfig({
-        memory: { enabled, maxMemories }
-    });
-
+    await window.electronAPI?.saveConfig({ memory: memoryConfig });
     showStatus('memory-settings-status', t('status.saved'), 'success');
 });
+
+document.getElementById('btn-test-memory')?.addEventListener('click', () => {
+    if (!petSystem?.memorySystem) {
+        showStatus('memory-settings-status', 'Memory system not initialized', 'error');
+        return;
+    }
+
+    const stats = petSystem.memorySystem.getStats();
+    const msg = `Memory System Status:
+- Enabled: ${petSystem.memorySystem.enabled}
+- Total: ${stats.totalMemories}
+- Today: ${stats.todayMemories}
+- Week: ${stats.weekMemories}
+- Short-term: ${petSystem.memorySystem.shortTermLimit}
+- Long-term retrieval: ${petSystem.memorySystem.longTermRetrievalLimit}`;
+
+    alert(msg);
+    showStatus('memory-settings-status', 'Test completed', 'success');
+});
+
+loadMemorySettings();
 
 // ========== Memory System UI ==========
 

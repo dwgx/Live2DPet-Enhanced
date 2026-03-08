@@ -248,13 +248,28 @@
     <div class="card">
         <h2 data-i18n="memory.settings.title">Memory Settings</h2>
         <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n="memory.settings.hint">Configure how AI remembers your conversations</p>
+
         <label><input type="checkbox" id="memory-enabled" checked> <span data-i18n="memory.settings.enabled">Enable Long-term Memory</span></label>
         <p style="font-size:11px;color:#666;margin:4px 0 8px 24px;" data-i18n="memory.settings.enabledHint">AI will remember past conversations and retrieve relevant context automatically</p>
+
         <label style="margin-top:8px;" data-i18n="memory.settings.maxMemories">Max Memories to Keep</label>
         <input type="number" id="memory-max" value="2000" min="100" max="10000" step="100">
         <p style="font-size:11px;color:#666;margin:4px 0;" data-i18n="memory.settings.maxHint">Older memories will be automatically removed when limit is reached</p>
+
+        <label style="margin-top:8px;" data-i18n="memory.settings.shortTermLimit">Short-term Memory Size</label>
+        <input type="number" id="memory-short-term" value="8" min="3" max="20" step="1">
+        <p style="font-size:11px;color:#666;margin:4px 0;" data-i18n="memory.settings.shortTermHint">Number of recent messages always included in context</p>
+
+        <label style="margin-top:8px;" data-i18n="memory.settings.longTermLimit">Long-term Retrieval Limit</label>
+        <input type="number" id="memory-long-term" value="3" min="0" max="10" step="1">
+        <p style="font-size:11px;color:#666;margin:4px 0;" data-i18n="memory.settings.longTermHint">Number of relevant past memories to retrieve (0 = disable retrieval)</p>
+
+        <label style="margin-top:8px;"><input type="checkbox" id="memory-auto-save" checked> <span data-i18n="memory.settings.autoSave">Auto-save to Browser Storage</span></label>
+        <p style="font-size:11px;color:#666;margin:4px 0 8px 24px;" data-i18n="memory.settings.autoSaveHint">Automatically save memories to localStorage for persistence</p>
+
         <div class="btn-row" style="margin-top:12px;">
             <button class="btn btn-primary" id="btn-save-memory-settings" data-i18n="btn.save">Save</button>
+            <button class="btn btn-secondary" id="btn-test-memory" data-i18n="memory.settings.test">Test Memory</button>
         </div>
         <div class="status" id="memory-settings-status"></div>
     </div>

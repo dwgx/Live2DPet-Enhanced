@@ -43,7 +43,15 @@ function getDefaultConfig() {
         emotionFrequency: 30,
         enabledEmotions: [],
         maxTokensMultiplier: 1.0,
-        voiceInput: { mode: 'api-stt', lang: 'en-US', autoContinuous: false, textRepair: true, deviceId: '' },
+        voiceInput: { mode: 'api-stt', lang: 'en-US', autoContinuous: false, textRepair: true, deviceId: '', whisperModel: 'small' },
+        memory: {
+            enabled: true,
+            maxMemories: 2000,
+            shortTermLimit: 8,
+            longTermRetrievalLimit: 3,
+            autoSave: true,
+            includeRelevant: true
+        },
         speechToText: {
             baseURL: 'https://api.openai.com/v1',
             apiKey: '',

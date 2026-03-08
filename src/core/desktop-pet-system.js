@@ -60,9 +60,17 @@ class DesktopPetSystem {
 
         // Memory system
         if (typeof MemorySystem !== 'undefined') {
-            this.memorySystem = new MemorySystem();
-            this.memorySystem.loadFromStorage();
-            console.log('[DesktopPetSystem] Memory system initialized');
+            try {
+                const config = await window.electronAPI?.loadConfig();
+                const memoryConfig = config?.memory || {};
+                this.memorySystem = new MemorySystem(memoryConfig);
+                this.memorySystem.loadFromStorage();
+                console.log('[DesktopPetSystem] Memory system initialized:', memoryConfig);
+            } catch (e) {
+                this.memorySystem = new MemorySystem();
+                this.memorySystem.loadFromStorage();
+                console.log('[DesktopPetSystem] Memory system initialized with defaults');
+            }
         }
 
         // Audio state machine

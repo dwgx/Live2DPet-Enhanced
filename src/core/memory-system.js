@@ -4,10 +4,24 @@
  */
 
 class MemorySystem {
-    constructor() {
+    constructor(config = {}) {
         this.memories = []; // {id, timestamp, role, content, keywords, metadata}
-        this.maxMemories = 2000;
+        this.maxMemories = config.maxMemories || 2000;
+        this.shortTermLimit = config.shortTermLimit || 8;
+        this.longTermRetrievalLimit = config.longTermRetrievalLimit || 3;
+        this.autoSave = config.autoSave !== false;
+        this.includeRelevant = config.includeRelevant !== false;
+        this.enabled = config.enabled !== false;
         this.stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how']);
+    }
+
+    configure(config) {
+        if (config.maxMemories !== undefined) this.maxMemories = config.maxMemories;
+        if (config.shortTermLimit !== undefined) this.shortTermLimit = config.shortTermLimit;
+        if (config.longTermRetrievalLimit !== undefined) this.longTermRetrievalLimit = config.longTermRetrievalLimit;
+        if (config.autoSave !== undefined) this.autoSave = config.autoSave;
+        if (config.includeRelevant !== undefined) this.includeRelevant = config.includeRelevant;
+        if (config.enabled !== undefined) this.enabled = config.enabled;
     }
 
     extractKeywords(text) {
@@ -29,6 +43,8 @@ class MemorySystem {
     }
 
     async addMemory(role, content, metadata = {}) {
+        if (!this.enabled) return null;
+
         const memory = {
             id: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
             timestamp: Date.now(),
@@ -46,7 +62,9 @@ class MemorySystem {
         }
 
         // Auto-save to localStorage
-        this.saveToStorage();
+        if (this.autoSave) {
+            this.saveToStorage();
+        }
 
         return memory.id;
     }
@@ -72,19 +90,22 @@ class MemorySystem {
         return this.memories.slice(-limit);
     }
 
-    getShortTermContext(limit = 10) {
-        return this.memories.slice(-limit);
+    getShortTermContext(limit) {
+        return this.memories.slice(-(limit || this.shortTermLimit));
     }
 
-    async getContextForPrompt(userMessage, includeRelevant = true) {
-        const shortTerm = this.getShortTermContext(8);
+    async getContextForPrompt(userMessage, includeRelevant) {
+        if (!this.enabled) return [];
 
-        if (!includeRelevant) {
+        const shouldIncludeRelevant = includeRelevant !== undefined ? includeRelevant : this.includeRelevant;
+        const shortTerm = this.getShortTermContext();
+
+        if (!shouldIncludeRelevant) {
             return shortTerm;
         }
 
         // Search for relevant long-term memories
-        const relevant = this.searchRelevantMemories(userMessage, 3);
+        const relevant = this.searchRelevantMemories(userMessage, this.longTermRetrievalLimit);
 
         // Filter out memories already in short-term
         const shortTermIds = new Set(shortTerm.map(m => m.id));
