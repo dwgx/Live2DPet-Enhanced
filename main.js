@@ -23,6 +23,9 @@ const { registerTTSIPC } = require('./src/main/tts-ipc');
 const { registerEnhanceIPC } = require('./src/main/enhance-ipc');
 const { registerDefaultAudioIPC } = require('./src/main/default-audio-ipc');
 const { registerModelImport } = require('./src/main/model-import');
+const { registerSTTIPC } = require('./src/main/stt-ipc');
+const { registerLocalSTTIPC } = require('./src/main/local-stt-ipc');
+const { registerWhisperSTTIPC } = require('./src/main/whisper-stt-ipc');
 const { createPathUtils } = require('./src/utils/path-utils');
 const { TTSService } = require('./src/core/tts-service');
 const { TranslationService } = require('./src/core/translation-service');
@@ -33,6 +36,12 @@ const ctx = new AppContext();
 const configManager = createConfigManager(app);
 const { mt } = createI18nHelper(ctx);
 const basePath = __dirname;
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+    app.quit();
+    process.exit(0);
+}
 
 // ========== Register Modules ==========
 
@@ -70,6 +79,13 @@ registerModelImport(ctx, ipcMain, {
     app, fs, path, dialog, mt, configManager, BrowserWindow
 });
 
+registerSTTIPC(ctx, ipcMain, {
+    configManager
+});
+
+registerLocalSTTIPC(ctx, ipcMain);
+registerWhisperSTTIPC(ctx, ipcMain);
+
 // ========== App Lifecycle ==========
 
 app.whenReady().then(async () => {
@@ -104,6 +120,14 @@ app.whenReady().then(async () => {
             console.log('[TTS] voicevox_core not found, TTS disabled');
         }
     });
+});
+
+app.on('second-instance', () => {
+    if (ctx.settingsWindow && !ctx.settingsWindow.isDestroyed()) {
+        if (ctx.settingsWindow.isMinimized()) ctx.settingsWindow.restore();
+        ctx.settingsWindow.show();
+        ctx.settingsWindow.focus();
+    }
 });
 
 app.on('window-all-closed', () => {

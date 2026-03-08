@@ -7,6 +7,24 @@ let currentModelConfig = {};
 let suggestedMapping = null;
 let scannedParamIds = [];
 let scannedMotions = {};  // {group: [{file}]} from scan-model-info
+let voiceRecognition = null;
+let voiceListening = false;
+let voiceSessionAutoSent = false;
+let voiceRecorder = null;
+let voiceRecorderStream = null;
+let voiceRecordChunks = [];
+let voiceRecordTimer = null;
+let voiceTranscribing = false;
+let voiceAutoLoopEnabled = false;
+let voiceStopRequested = false;
+let voiceAutoLoopTimer = null;
+let voiceSendQueue = [];
+let voiceSending = false;
+let voiceAudioContext = null;
+let voiceAnalyser = null;
+let voiceVolumeMonitor = null;
+let voiceSelectedDeviceId = null;
+let voiceAvailableDevices = [];
 
 // ========== i18n System ==========
 let currentLang = 'en';
@@ -30,6 +48,7 @@ function setLanguage(lang) {
     currentLang = lang;
     document.getElementById('lang-select').value = lang;
     applyI18n();
+    updateVoiceButtons();
     if (window.electronAPI) window.electronAPI.saveConfig({ uiLanguage: lang });
     // Reload character card in new language (for built-in i18n cards)
     if (currentCharacterId) {
@@ -47,6 +66,7 @@ document.getElementById('lang-select').addEventListener('change', (e) => {
 document.addEventListener('DOMContentLoaded', async () => {
     petSystem = new DesktopPetSystem();
     await petSystem.init();
+    let fileConfig = {};
 
     // Wire emotion system callbacks to IPC
     petSystem.emotionSystem.onEmotionTriggered = (emotionName) => {
@@ -70,7 +90,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Load full config
     if (window.electronAPI && window.electronAPI.loadConfig) {
-        const fileConfig = await window.electronAPI.loadConfig();
+        fileConfig = await window.electronAPI.loadConfig();
         // Load UI language
         if (fileConfig.uiLanguage && window.I18N && window.I18N[fileConfig.uiLanguage]) {
             currentLang = fileConfig.uiLanguage;
@@ -102,6 +122,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Reload prompt with correct language (after language is set)
         await reloadPetPrompt();
     }
+    initVoiceInput(fileConfig);
 });
 
 // ========== Tab Switching ==========
@@ -167,9 +188,19 @@ document.getElementById('btn-save-interval').addEventListener('click', () => {
 // ========== Start/Stop ==========
 document.getElementById('btn-start').addEventListener('click', () => petSystem.start());
 document.getElementById('btn-stop').addEventListener('click', () => petSystem.stop());
-document.getElementById('link-github').addEventListener('click', (e) => {
+document.getElementById('link-github').addEventListener('click', async (e) => {
     e.preventDefault();
-    if (window.electronAPI) window.electronAPI.openExternal('https://github.com/x380kkm/Live2DPet');
+    const url = 'https://github.com/x380kkm/Live2DPet';
+    try {
+        if (window.electronAPI?.openExternal) {
+            const result = await window.electronAPI.openExternal(url);
+            if (result?.success === false) throw new Error(result.error || 'open_external_failed');
+            return;
+        }
+    } catch (err) {
+        console.warn('[SettingsUI] openExternal failed, fallback to window.open:', err);
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
 });
 
 if (window.electronAPI) {
@@ -177,6 +208,860 @@ if (window.electronAPI) {
         petSystem.isActive = false;
         petSystem.stopDetection();
     });
+}
+
+// ========== Voice Input ==========
+function getVoiceMode() {
+    return document.getElementById('voice-mode')?.value || 'webspeech';
+}
+
+function getDefaultVoiceLang() {
+    if (currentLang === 'zh') return 'zh-CN';
+    if (currentLang === 'ja') return 'ja-JP';
+    return 'en-US';
+}
+
+function clearVoiceRecordTimer() {
+    if (voiceRecordTimer) {
+        clearTimeout(voiceRecordTimer);
+        voiceRecordTimer = null;
+    }
+}
+
+function clearVoiceAutoLoopTimer() {
+    if (voiceAutoLoopTimer) {
+        clearTimeout(voiceAutoLoopTimer);
+        voiceAutoLoopTimer = null;
+    }
+}
+
+function shouldEnableAutoLoop() {
+    return !!document.getElementById('voice-auto-mode')?.checked;
+}
+
+function shouldEnableTextRepair() {
+    const el = document.getElementById('voice-text-repair');
+    return !el || el.checked;
+}
+
+function shouldContinueVoiceAutoLoop() {
+    return voiceAutoLoopEnabled && !voiceStopRequested;
+}
+
+function stopVoiceAutoLoop() {
+    voiceStopRequested = true;
+    voiceAutoLoopEnabled = false;
+    clearVoiceAutoLoopTimer();
+    updateVoiceButtons();
+}
+
+function scheduleNextVoiceSession(delayMs = 240) {
+    clearVoiceAutoLoopTimer();
+    if (!shouldContinueVoiceAutoLoop()) {
+        updateVoiceButtons();
+        return;
+    }
+
+    voiceAutoLoopTimer = setTimeout(() => {
+        voiceAutoLoopTimer = null;
+        if (!shouldContinueVoiceAutoLoop()) {
+            updateVoiceButtons();
+            return;
+        }
+        if (voiceListening || voiceTranscribing) return;
+        startVoiceSessionByCurrentMode({ clearTranscript: true });
+    }, Math.max(0, delayMs));
+    updateVoiceButtons();
+}
+
+function stopVoiceRecorderTracks() {
+    if (!voiceRecorderStream) return;
+    try {
+        for (const track of voiceRecorderStream.getTracks()) track.stop();
+    } catch (e) {}
+    voiceRecorderStream = null;
+}
+
+function stopVoiceVolumeMonitor() {
+    if (voiceVolumeMonitor) {
+        cancelAnimationFrame(voiceVolumeMonitor);
+        voiceVolumeMonitor = null;
+    }
+    const meterEl = document.getElementById('voice-volume-meter');
+    const barEl = document.getElementById('voice-volume-bar');
+    const textEl = document.getElementById('voice-volume-text');
+    if (meterEl) meterEl.style.display = 'none';
+    if (barEl) barEl.style.width = '0%';
+    if (textEl) textEl.textContent = '0%';
+}
+
+function startVoiceVolumeMonitor(stream) {
+    stopVoiceVolumeMonitor();
+    const meterEl = document.getElementById('voice-volume-meter');
+    const barEl = document.getElementById('voice-volume-bar');
+    const textEl = document.getElementById('voice-volume-text');
+    if (!meterEl || !barEl || !textEl) {
+        console.warn('Volume meter elements not found');
+        return;
+    }
+
+    try {
+        if (!voiceAudioContext) voiceAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+        if (voiceAudioContext.state === 'suspended') voiceAudioContext.resume();
+
+        if (!voiceAnalyser) {
+            voiceAnalyser = voiceAudioContext.createAnalyser();
+            voiceAnalyser.fftSize = 256;
+            voiceAnalyser.smoothingTimeConstant = 0.8;
+        }
+
+        const source = voiceAudioContext.createMediaStreamSource(stream);
+        source.connect(voiceAnalyser);
+
+        const dataArray = new Uint8Array(voiceAnalyser.frequencyBinCount);
+        meterEl.style.display = 'block';
+
+        function updateVolume() {
+            if (!voiceVolumeMonitor) return;
+            voiceAnalyser.getByteFrequencyData(dataArray);
+            const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+            const percent = Math.min(100, Math.round((avg / 128) * 100));
+            barEl.style.width = percent + '%';
+            textEl.textContent = percent + '%';
+            voiceVolumeMonitor = requestAnimationFrame(updateVolume);
+        }
+        voiceVolumeMonitor = true;
+        updateVolume();
+    } catch (e) {
+        console.error('Volume monitor failed:', e);
+        meterEl.style.display = 'none';
+    }
+}
+
+async function loadVoiceDevices() {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        voiceAvailableDevices = devices.filter(d => d.kind === 'audioinput');
+        const deviceSelect = document.getElementById('voice-device');
+        if (!deviceSelect) return;
+
+        deviceSelect.innerHTML = '<option value="">Default Device</option>';
+        voiceAvailableDevices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.deviceId;
+            opt.textContent = d.label || `Microphone ${d.deviceId.slice(0, 8)}`;
+            deviceSelect.appendChild(opt);
+        });
+
+        if (voiceSelectedDeviceId && voiceAvailableDevices.some(d => d.deviceId === voiceSelectedDeviceId)) {
+            deviceSelect.value = voiceSelectedDeviceId;
+        }
+    } catch (e) {
+        console.warn('Failed to load voice devices:', e);
+    }
+}
+
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+}
+
+function updateVoiceButtons() {
+    const modeSelect = document.getElementById('voice-mode');
+    const sttConfig = document.getElementById('voice-stt-config');
+    const listenBtn = document.getElementById('btn-voice-listen');
+    const stopBtn = document.getElementById('btn-voice-stop');
+    if (!modeSelect || !listenBtn || !stopBtn) return;
+
+    const mode = modeSelect.value;
+    const busy = voiceListening || voiceTranscribing || voiceAutoLoopEnabled;
+
+    listenBtn.textContent = busy
+        ? (voiceAutoLoopEnabled ? t('voice.listeningAuto') : t('voice.listening'))
+        : t('voice.listen');
+    listenBtn.disabled = busy;
+    stopBtn.disabled = !(voiceListening || voiceTranscribing || voiceAutoLoopEnabled);
+    if (sttConfig) sttConfig.style.display = mode === 'api-stt' ? '' : 'none';
+}
+
+function mapVoiceSendError(error) {
+    if (error === 'api_not_configured') return t('voice.err.api');
+    if (error === 'pet_not_started') return t('voice.err.pet');
+    if (error === 'busy') return t('voice.err.busy');
+    if (error === 'empty') return t('voice.err.empty');
+    return t('status.failed') + error;
+}
+
+function mapSTTError(error) {
+    if (error === 'busy') return t('voice.err.busy');
+    if (error === 'api_not_configured') return t('voice.err.sttApi');
+    if (error === 'empty_audio' || error === 'empty_transcript') return t('voice.err.noSpeech');
+    if (error === 'stt_model_not_found') return t('voice.err.sttModel');
+    if (error === 'local_stt_unavailable') return t('voice.err.localUnavailable');
+    if (error === 'language_not_installed') return t('voice.err.localLangMissing');
+    if (error === 'device_unavailable') return t('voice.err.localDevice');
+    if (error === 'no_speech') return t('voice.err.noSpeech');
+    if (String(error).includes('401') || String(error).includes('403')) return t('voice.err.sttAuth');
+    if (String(error).includes('404')) return t('voice.err.sttEndpoint');
+    if (/language|unsupported language|invalid language/i.test(String(error))) return t('voice.err.sttLanguage');
+    return t('voice.err.sttFailed') + error;
+}
+
+function repairVoiceText(rawText, language) {
+    let text = String(rawText || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+    if (!text) return '';
+
+    text = text.replace(/\s+/g, ' ');
+    text = text.replace(/([,，。.!！？?、])\1+/g, '$1');
+    text = text.replace(/\b([A-Za-z]{2,})\s+\1\b/gi, '$1');
+    text = text.replace(/([\u3040-\u30ff\u3400-\u9fff])\1{2,}/g, '$1$1');
+
+    let prev = '';
+    while (prev !== text) {
+        prev = text;
+        text = text.replace(/([\u3040-\u30ff\u3400-\u9fff])\s+([\u3040-\u30ff\u3400-\u9fff])/g, '$1$2');
+    }
+
+    if (String(language || '').toLowerCase().startsWith('en')) {
+        text = text.replace(/\s+([,.!?;:])/g, '$1');
+    }
+    return text.trim();
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function sendVoiceTextDirect(text) {
+    showStatus('voice-status', t('voice.sending'), 'info');
+
+    let result = null;
+    try {
+        for (let attempt = 0; attempt < 6; attempt++) {
+            result = await petSystem.sendUserMessage(text);
+            if (result.success) break;
+            if (result.error !== 'busy') break;
+            await sleep(1000);
+        }
+    } catch (e) {
+        result = { success: false, error: e?.message || String(e) };
+    }
+
+    if (result?.success) {
+        showStatus('voice-status', t('voice.sent'), 'success');
+    } else {
+        showStatus('voice-status', mapVoiceSendError(result?.error || 'unknown'), 'error');
+    }
+    return result || { success: false, error: 'unknown' };
+}
+
+async function flushVoiceSendQueue() {
+    if (voiceSending) return;
+    voiceSending = true;
+    try {
+        while (voiceSendQueue.length > 0) {
+            const item = voiceSendQueue.shift();
+            const result = await sendVoiceTextDirect(item.text);
+            item.resolve(result);
+        }
+    } finally {
+        voiceSending = false;
+    }
+}
+
+function enqueueVoiceSend(text) {
+    return new Promise((resolve) => {
+        voiceSendQueue.push({ text, resolve });
+        flushVoiceSendQueue();
+    });
+}
+
+async function sendVoiceTextToAI(textOverride = null, options = {}) {
+    const transcriptEl = document.getElementById('voice-transcript');
+    const langSelect = document.getElementById('voice-lang');
+    const rawText = textOverride == null ? transcriptEl.value : String(textOverride);
+    let text = rawText.trim();
+
+    if (shouldEnableTextRepair() && options.skipRepair !== true) {
+        text = repairVoiceText(text, langSelect?.value || getDefaultVoiceLang());
+        if (transcriptEl) transcriptEl.value = text;
+    }
+
+    if (!text) {
+        if (!options.silentEmpty) showStatus('voice-status', t('voice.err.empty'), 'error');
+        return { success: false, error: 'empty' };
+    }
+
+    return enqueueVoiceSend(text);
+}
+
+async function transcribeRecordedAudio(blob, language) {
+    if (!window.electronAPI?.sttTranscribe) {
+        showStatus('voice-status', t('voice.err.sttUnavailable'), 'error');
+        return { success: false, error: 'stt_unavailable' };
+    }
+    if (!blob || blob.size === 0) {
+        showStatus('voice-status', t('voice.err.noSpeech'), 'error');
+        return { success: false, error: 'empty_audio' };
+    }
+
+    voiceTranscribing = true;
+    updateVoiceButtons();
+    showStatus('voice-status', t('voice.transcribing'), 'info');
+
+    try {
+        const buffer = await blob.arrayBuffer();
+        const audioBase64 = arrayBufferToBase64(buffer);
+        const result = await window.electronAPI.sttTranscribe({
+            audioBase64,
+            mimeType: blob.type || 'audio/webm',
+            language
+        });
+
+        if (!result?.success || !result.text) {
+            if (result?.error === 'stt_model_not_found') {
+                const modeSelect = document.getElementById('voice-mode');
+                if (modeSelect && modeSelect.value === 'api-stt') {
+                    const fallbackMode = window.electronAPI?.localSttTranscribe ? 'local-stt' : 'webspeech';
+                    modeSelect.value = fallbackMode;
+                    if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { mode: fallbackMode } });
+                    updateVoiceButtons();
+                    showStatus('voice-status', fallbackMode === 'local-stt' ? t('voice.err.sttModelSwitchLocal') : t('voice.err.sttModelSwitch'), 'error');
+                    return { success: false, error: 'stt_model_not_found' };
+                }
+            }
+            showStatus('voice-status', mapSTTError(result?.error || 'unknown'), 'error');
+            return { success: false, error: result?.error || 'unknown' };
+        }
+
+        const transcriptEl = document.getElementById('voice-transcript');
+        if (transcriptEl) transcriptEl.value = result.text.trim();
+        return await sendVoiceTextToAI(result.text, { fromRecognition: true });
+    } catch (e) {
+        const err = e.message || String(e);
+        showStatus('voice-status', mapSTTError(err), 'error');
+        return { success: false, error: err };
+    } finally {
+        voiceTranscribing = false;
+        updateVoiceButtons();
+    }
+}
+
+async function startAPISTTRecording(language) {
+    if (voiceListening || voiceTranscribing) return false;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        showStatus('voice-status', t('voice.err.recorderUnavailable'), 'error');
+        stopVoiceAutoLoop();
+        return false;
+    }
+
+    try {
+        const constraints = { audio: voiceSelectedDeviceId ? { deviceId: { exact: voiceSelectedDeviceId } } : true };
+        voiceRecorderStream = await navigator.mediaDevices.getUserMedia(constraints);
+        startVoiceVolumeMonitor(voiceRecorderStream);
+        const mimeCandidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+        const supportedMime = mimeCandidates.find(m => MediaRecorder.isTypeSupported?.(m));
+        voiceRecorder = supportedMime
+            ? new MediaRecorder(voiceRecorderStream, { mimeType: supportedMime })
+            : new MediaRecorder(voiceRecorderStream);
+
+        voiceRecordChunks = [];
+        voiceSessionAutoSent = false;
+
+        voiceRecorder.onstart = () => {
+            voiceListening = true;
+            updateVoiceButtons();
+            showStatus('voice-status', t('voice.recordingHint'), 'info');
+        };
+
+        voiceRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) voiceRecordChunks.push(event.data);
+        };
+
+        voiceRecorder.onerror = (event) => {
+            voiceListening = false;
+            clearVoiceRecordTimer();
+            stopVoiceRecorderTracks();
+            updateVoiceButtons();
+            showStatus('voice-status', t('status.failed') + (event?.error?.name || 'recorder'), 'error');
+        };
+
+        voiceRecorder.onstop = async () => {
+            voiceListening = false;
+            clearVoiceRecordTimer();
+            stopVoiceRecorderTracks();
+            updateVoiceButtons();
+
+            const mimeType = voiceRecorder?.mimeType || 'audio/webm';
+            const blob = new Blob(voiceRecordChunks, { type: mimeType });
+            voiceRecordChunks = [];
+            voiceRecorder = null;
+
+            const result = await transcribeRecordedAudio(blob, language);
+            if (shouldContinueVoiceAutoLoop()) {
+                const errText = String(result?.error || '');
+                const hardStopErrors = new Set(['api_not_configured', 'stt_unavailable']);
+                const shouldHardStop = hardStopErrors.has(errText)
+                    || /(^|[^\d])(401|403|404)([^\d]|$)/.test(errText);
+                if (shouldHardStop) {
+                    stopVoiceAutoLoop();
+                } else {
+                    scheduleNextVoiceSession();
+                }
+            }
+        };
+
+        voiceRecorder.start(200);
+        clearVoiceRecordTimer();
+        voiceRecordTimer = setTimeout(() => {
+            if (voiceRecorder && voiceRecorder.state === 'recording') voiceRecorder.stop();
+        }, 14000);
+        return true;
+    } catch (e) {
+        stopVoiceRecorderTracks();
+        voiceRecorder = null;
+        voiceListening = false;
+        updateVoiceButtons();
+        showStatus('voice-status', t('voice.err.permission'), 'error');
+        stopVoiceAutoLoop();
+        return false;
+    }
+}
+
+function stopAPISTTRecording() {
+    if (voiceRecorder && voiceRecorder.state === 'recording') {
+        voiceRecorder.stop();
+        showStatus('voice-status', t('voice.stopped'), 'info');
+    }
+    stopVoiceVolumeMonitor();
+}
+
+async function startWhisperSTTRecording(language) {
+    if (voiceListening || voiceTranscribing) return false;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        showStatus('voice-status', t('voice.err.recorderUnavailable'), 'error');
+        stopVoiceAutoLoop();
+        return false;
+    }
+
+    // Check if Whisper is available
+    if (window.electronAPI?.whisperSttCheck) {
+        const check = await window.electronAPI.whisperSttCheck();
+        if (!check?.available) {
+            showStatus('voice-status', 'Whisper not found. Please install whisper.cpp', 'error');
+            stopVoiceAutoLoop();
+            return false;
+        }
+    }
+
+    try {
+        const constraints = { audio: voiceSelectedDeviceId ? { deviceId: { exact: voiceSelectedDeviceId } } : true };
+        voiceRecorderStream = await navigator.mediaDevices.getUserMedia(constraints);
+        startVoiceVolumeMonitor(voiceRecorderStream);
+
+        const mimeCandidates = ['audio/wav', 'audio/webm;codecs=opus', 'audio/webm'];
+        const supportedMime = mimeCandidates.find(m => MediaRecorder.isTypeSupported?.(m));
+        voiceRecorder = supportedMime
+            ? new MediaRecorder(voiceRecorderStream, { mimeType: supportedMime })
+            : new MediaRecorder(voiceRecorderStream);
+
+        voiceRecordChunks = [];
+        voiceSessionAutoSent = false;
+
+        voiceRecorder.onstart = () => {
+            voiceListening = true;
+            updateVoiceButtons();
+            showStatus('voice-status', 'Recording for Whisper...', 'info');
+        };
+
+        voiceRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) voiceRecordChunks.push(event.data);
+        };
+
+        voiceRecorder.onerror = (event) => {
+            voiceListening = false;
+            clearVoiceRecordTimer();
+            stopVoiceRecorderTracks();
+            updateVoiceButtons();
+            showStatus('voice-status', t('status.failed') + (event?.error?.name || 'recorder'), 'error');
+        };
+
+        voiceRecorder.onstop = async () => {
+            voiceListening = false;
+            clearVoiceRecordTimer();
+            stopVoiceRecorderTracks();
+            updateVoiceButtons();
+
+            const mimeType = voiceRecorder?.mimeType || 'audio/webm';
+            const blob = new Blob(voiceRecordChunks, { type: mimeType });
+            voiceRecordChunks = [];
+            voiceRecorder = null;
+
+            const result = await transcribeWithWhisper(blob, language);
+            if (shouldContinueVoiceAutoLoop()) {
+                const hardStopErrors = new Set(['whisper_not_found', 'whisper_model_not_found', 'permission_denied']);
+                if (hardStopErrors.has(result?.error)) {
+                    stopVoiceAutoLoop();
+                } else {
+                    scheduleNextVoiceSession();
+                }
+            }
+        };
+
+        voiceRecorder.start();
+        voiceRecordTimer = setTimeout(() => {
+            if (voiceRecorder && voiceRecorder.state === 'recording') voiceRecorder.stop();
+        }, 8000);
+        return true;
+    } catch (e) {
+        voiceListening = false;
+        clearVoiceRecordTimer();
+        stopVoiceRecorderTracks();
+        updateVoiceButtons();
+        if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+            showStatus('voice-status', t('voice.err.permission'), 'error');
+        } else {
+            showStatus('voice-status', t('status.failed') + (e.message || 'recorder'), 'error');
+        }
+        stopVoiceAutoLoop();
+        return false;
+    }
+}
+
+async function transcribeWithWhisper(blob, language) {
+    if (!window.electronAPI?.whisperSttTranscribe) {
+        showStatus('voice-status', 'Whisper API not available', 'error');
+        return { success: false, error: 'whisper_unavailable' };
+    }
+
+    voiceTranscribing = true;
+    updateVoiceButtons();
+    showStatus('voice-status', 'Transcribing with Whisper...', 'info');
+
+    try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const base64Audio = arrayBufferToBase64(arrayBuffer);
+
+        const result = await window.electronAPI.whisperSttTranscribe({
+            audioData: base64Audio,
+            language: language || 'auto',
+            model: document.getElementById('whisper-model')?.value || 'small',
+            mimeType: blob.type,
+            useGpu: true
+        });
+
+        if (!result?.success || !result.text) {
+            showStatus('voice-status', 'Whisper failed: ' + (result?.error || 'unknown'), 'error');
+            return { success: false, error: result?.error || 'whisper_failed' };
+        }
+
+        const transcriptEl = document.getElementById('voice-transcript');
+        if (transcriptEl) transcriptEl.value = result.text.trim();
+        return await sendVoiceTextToAI(result.text, { fromRecognition: true });
+    } catch (e) {
+        const err = e.message || String(e);
+        showStatus('voice-status', 'Whisper error: ' + err, 'error');
+        return { success: false, error: err };
+    } finally {
+        voiceTranscribing = false;
+        updateVoiceButtons();
+    }
+}
+
+async function startLocalSTTRecognition(language) {
+    if (voiceListening || voiceTranscribing) return false;
+    if (!window.electronAPI?.localSttTranscribe) {
+        showStatus('voice-status', t('voice.err.localUnavailable'), 'error');
+        stopVoiceAutoLoop();
+        return false;
+    }
+
+    voiceListening = true;
+    updateVoiceButtons();
+    showStatus('voice-status', t('voice.localListeningHint'), 'info');
+    let fatalError = false;
+
+    try {
+        const result = await window.electronAPI.localSttTranscribe({
+            language,
+            timeoutSec: 18
+        });
+
+        if (!result?.success || !result.text) {
+            if (result?.error === 'aborted') {
+                showStatus('voice-status', t('voice.stopped'), 'info');
+                return true;
+            }
+            showStatus('voice-status', mapSTTError(result?.error || 'local_stt_failed'), 'error');
+            fatalError = ['local_stt_unavailable', 'language_not_installed', 'device_unavailable'].includes(result?.error);
+            return false;
+        }
+
+        const transcriptEl = document.getElementById('voice-transcript');
+        transcriptEl.value = result.text.trim();
+        await sendVoiceTextToAI(result.text, { fromRecognition: true });
+        return true;
+    } catch (e) {
+        const err = e.message || String(e);
+        showStatus('voice-status', mapSTTError(err), 'error');
+        fatalError = true;
+        return false;
+    } finally {
+        voiceListening = false;
+        updateVoiceButtons();
+        if (shouldContinueVoiceAutoLoop()) {
+            if (fatalError) stopVoiceAutoLoop();
+            else scheduleNextVoiceSession();
+        }
+    }
+}
+
+async function stopLocalSTTRecognition() {
+    if (!window.electronAPI?.localSttStop) return;
+    try { await window.electronAPI.localSttStop(); } catch (e) {}
+}
+
+async function startVoiceSessionByCurrentMode({ clearTranscript = true } = {}) {
+    const transcriptEl = document.getElementById('voice-transcript');
+    const langSelect = document.getElementById('voice-lang');
+
+    if (clearTranscript && transcriptEl) transcriptEl.value = '';
+
+    const mode = getVoiceMode();
+    const language = langSelect?.value || getDefaultVoiceLang();
+
+    if (mode === 'api-stt') return startAPISTTRecording(language);
+    if (mode === 'whisper-stt') return startWhisperSTTRecording(language);
+    if (mode === 'local-stt') return startLocalSTTRecognition(language);
+
+    if (!voiceRecognition || voiceListening) {
+        showStatus('voice-status', t('voice.unsupported'), 'error');
+        stopVoiceAutoLoop();
+        return false;
+    }
+
+    voiceRecognition.lang = language;
+    try {
+        voiceRecognition.start();
+
+        // Start volume monitor for WebSpeech API
+        if (navigator.mediaDevices?.getUserMedia) {
+            try {
+                const constraints = { audio: voiceSelectedDeviceId ? { deviceId: { exact: voiceSelectedDeviceId } } : true };
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                startVoiceVolumeMonitor(stream);
+            } catch (e) {
+                console.warn('Volume monitor failed for WebSpeech:', e);
+            }
+        }
+
+        return true;
+    } catch (e) {
+        showStatus('voice-status', t('status.failed') + e.message, 'error');
+        stopVoiceAutoLoop();
+        return false;
+    }
+}
+
+function initVoiceInput(fileConfig = {}) {
+    const modeSelect = document.getElementById('voice-mode');
+    const langSelect = document.getElementById('voice-lang');
+    const deviceSelect = document.getElementById('voice-device');
+    const listenBtn = document.getElementById('btn-voice-listen');
+    const stopBtn = document.getElementById('btn-voice-stop');
+    const sendBtn = document.getElementById('btn-voice-send');
+    const transcriptEl = document.getElementById('voice-transcript');
+    const sttBaseUrlEl = document.getElementById('voice-stt-base-url');
+    const sttApiKeyEl = document.getElementById('voice-stt-api-key');
+    const sttModelEl = document.getElementById('voice-stt-model');
+    const sttSaveBtn = document.getElementById('btn-voice-stt-save');
+    const autoModeEl = document.getElementById('voice-auto-mode');
+    const textRepairEl = document.getElementById('voice-text-repair');
+    if (!modeSelect || !langSelect || !listenBtn || !stopBtn || !sendBtn || !transcriptEl) return;
+
+    const savedMode = fileConfig.voiceInput?.mode || 'api-stt';
+    const savedLang = fileConfig.voiceInput?.lang || getDefaultVoiceLang();
+    const savedAutoContinuous = !!fileConfig.voiceInput?.autoContinuous;
+    const savedTextRepair = fileConfig.voiceInput?.textRepair !== false;
+    const savedDeviceId = fileConfig.voiceInput?.deviceId || '';
+    const savedWhisperModel = fileConfig.voiceInput?.whisperModel || 'small';
+    const sttCfg = fileConfig.speechToText || {};
+    const rawSttBaseURL = (sttCfg.baseURL || '').trim();
+    const rawSttModel = (sttCfg.modelName || '').trim();
+    const isDefaultSttConfig = !sttCfg.apiKey
+        && (rawSttBaseURL === '' || rawSttBaseURL === 'https://api.openai.com/v1')
+        && (rawSttModel === '' || rawSttModel === 'gpt-4o-mini-transcribe');
+
+    modeSelect.value = savedMode;
+    langSelect.value = savedLang;
+    voiceSelectedDeviceId = savedDeviceId;
+    if (autoModeEl) autoModeEl.checked = savedAutoContinuous;
+    if (textRepairEl) textRepairEl.checked = savedTextRepair;
+    const whisperModelSelect = document.getElementById('whisper-model');
+    if (whisperModelSelect) whisperModelSelect.value = savedWhisperModel;
+    const whisperModelDiv = document.getElementById('whisper-model-select');
+    if (whisperModelDiv) whisperModelDiv.style.display = savedMode === 'whisper-stt' ? 'block' : 'none';
+
+    loadVoiceDevices();
+    if (sttBaseUrlEl) sttBaseUrlEl.value = isDefaultSttConfig ? '' : rawSttBaseURL;
+    if (sttApiKeyEl) sttApiKeyEl.value = sttCfg.apiKey || '';
+    if (sttModelEl) sttModelEl.value = isDefaultSttConfig ? '' : rawSttModel;
+
+    modeSelect.addEventListener('change', () => {
+        if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { mode: modeSelect.value } });
+        updateVoiceButtons();
+        const whisperModelDiv = document.getElementById('whisper-model-select');
+        if (whisperModelDiv) whisperModelDiv.style.display = modeSelect.value === 'whisper-stt' ? 'block' : 'none';
+        if (voiceAutoLoopEnabled && !voiceListening && !voiceTranscribing) scheduleNextVoiceSession(80);
+    });
+    langSelect.addEventListener('change', () => {
+        if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { lang: langSelect.value } });
+        if (voiceRecognition) voiceRecognition.lang = langSelect.value;
+    });
+    autoModeEl?.addEventListener('change', () => {
+        if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { autoContinuous: autoModeEl.checked } });
+        if (!autoModeEl.checked) stopVoiceAutoLoop();
+        updateVoiceButtons();
+    });
+    textRepairEl?.addEventListener('change', () => {
+        if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { textRepair: textRepairEl.checked } });
+    });
+    deviceSelect?.addEventListener('change', () => {
+        voiceSelectedDeviceId = deviceSelect.value || null;
+        if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { deviceId: deviceSelect.value } });
+    });
+
+    const whisperModelSelect = document.getElementById('whisper-model');
+    whisperModelSelect?.addEventListener('change', () => {
+        if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { whisperModel: whisperModelSelect.value } });
+    });
+
+    sttSaveBtn?.addEventListener('click', () => {
+        const speechToText = {
+            baseURL: (sttBaseUrlEl?.value || '').trim(),
+            apiKey: (sttApiKeyEl?.value || '').trim(),
+            modelName: (sttModelEl?.value || '').trim()
+        };
+        if (window.electronAPI) window.electronAPI.saveConfig({ speechToText });
+        showStatus('voice-status', t('status.saved'), 'success');
+    });
+
+    sendBtn.addEventListener('click', () => sendVoiceTextToAI());
+
+    const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognitionCtor) {
+        voiceRecognition = new SpeechRecognitionCtor();
+        voiceRecognition.lang = langSelect.value;
+        voiceRecognition.continuous = false;
+        voiceRecognition.interimResults = true;
+        voiceRecognition.maxAlternatives = 1;
+
+        voiceRecognition.onstart = () => {
+            voiceListening = true;
+            voiceSessionAutoSent = false;
+            updateVoiceButtons();
+            showStatus('voice-status', t('voice.listeningHint'), 'info');
+        };
+
+        voiceRecognition.onresult = (event) => {
+            let mergedText = '';
+            let finalText = '';
+
+            for (let i = 0; i < event.results.length; i++) {
+                const transcript = (event.results[i][0]?.transcript || '').trim();
+                if (!transcript) continue;
+                mergedText += (mergedText ? ' ' : '') + transcript;
+                if (event.results[i].isFinal) {
+                    finalText += (finalText ? ' ' : '') + transcript;
+                }
+            }
+
+            if (mergedText) transcriptEl.value = mergedText;
+
+            if (finalText && !voiceSessionAutoSent) {
+                voiceSessionAutoSent = true;
+                transcriptEl.value = finalText;
+                sendVoiceTextToAI(finalText, { fromRecognition: true });
+            }
+        };
+
+        voiceRecognition.onerror = (event) => {
+            const err = event?.error || 'unknown';
+            voiceListening = false;
+            stopVoiceVolumeMonitor();
+            updateVoiceButtons();
+            if (err === 'not-allowed' || err === 'service-not-allowed') {
+                showStatus('voice-status', t('voice.err.permission'), 'error');
+                stopVoiceAutoLoop();
+                return;
+            }
+            if (err === 'network') {
+                const modeSelect = document.getElementById('voice-mode');
+                if (modeSelect && modeSelect.value === 'webspeech') {
+                    const fallbackMode = window.electronAPI?.localSttTranscribe ? 'local-stt' : 'api-stt';
+                    modeSelect.value = fallbackMode;
+                    if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { mode: fallbackMode } });
+                    updateVoiceButtons();
+                    showStatus('voice-status', fallbackMode === 'local-stt' ? t('voice.err.networkSwitchLocal') : t('voice.err.networkSwitch'), 'error');
+                    return;
+                }
+                showStatus('voice-status', t('voice.err.network'), 'error');
+                return;
+            }
+            if (err === 'no-speech' || err === 'audio-capture') {
+                showStatus('voice-status', t('voice.err.noSpeech'), 'error');
+                return;
+            }
+            showStatus('voice-status', t('status.failed') + err, 'error');
+        };
+
+        voiceRecognition.onend = () => {
+            voiceListening = false;
+            stopVoiceVolumeMonitor();
+            updateVoiceButtons();
+            if (shouldContinueVoiceAutoLoop() && getVoiceMode() === 'webspeech') {
+                scheduleNextVoiceSession();
+            }
+        };
+    }
+
+    listenBtn.addEventListener('click', async () => {
+        voiceStopRequested = false;
+        voiceAutoLoopEnabled = shouldEnableAutoLoop();
+        if (voiceAutoLoopEnabled) {
+            scheduleNextVoiceSession(0);
+            return;
+        }
+        await startVoiceSessionByCurrentMode({ clearTranscript: true });
+    });
+
+    stopBtn.addEventListener('click', async () => {
+        stopVoiceVolumeMonitor();
+        stopVoiceAutoLoop();
+        if (getVoiceMode() === 'api-stt' || getVoiceMode() === 'whisper-stt') {
+            stopAPISTTRecording();
+            return;
+        }
+        if (getVoiceMode() === 'local-stt') {
+            await stopLocalSTTRecognition();
+            showStatus('voice-status', t('voice.stopped'), 'info');
+            return;
+        }
+        if (voiceRecognition && voiceListening) {
+            voiceRecognition.stop();
+            showStatus('voice-status', t('voice.stopped'), 'info');
+            return;
+        }
+        showStatus('voice-status', t('voice.stopped'), 'info');
+    });
+
+    updateVoiceButtons();
 }
 
 // ========== Hover State ==========
@@ -1241,6 +2126,105 @@ document.getElementById('btn-save-vvm')?.addEventListener('click', async () => {
 });
 
 loadVvmConfig();
+
+// ========== Memory Settings ==========
+
+document.getElementById('btn-save-memory-settings')?.addEventListener('click', async () => {
+    const enabled = document.getElementById('memory-enabled')?.checked ?? true;
+    const maxMemories = parseInt(document.getElementById('memory-max')?.value || '2000');
+
+    if (petSystem?.memorySystem) {
+        petSystem.memorySystem.maxMemories = maxMemories;
+        if (!enabled) {
+            petSystem.memorySystem.clear();
+        }
+    }
+
+    await window.electronAPI?.saveConfig({
+        memory: { enabled, maxMemories }
+    });
+
+    showStatus('memory-settings-status', t('status.saved'), 'success');
+});
+
+// ========== Memory System UI ==========
+
+function refreshMemoryUI() {
+    if (!petSystem?.memorySystem) {
+        document.getElementById('memory-status').textContent = 'Memory system not initialized';
+        return;
+    }
+
+    const stats = petSystem.memorySystem.getStats();
+    document.getElementById('memory-total').textContent = stats.totalMemories;
+    document.getElementById('memory-embedded').textContent = `${stats.todayMemories} / ${stats.weekMemories}`;
+
+    const recent = petSystem.memorySystem.getRecentMemories(20);
+    const listEl = document.getElementById('memory-list');
+
+    if (recent.length === 0) {
+        listEl.innerHTML = '<p class="model-info" data-i18n="memory.empty">No memories yet. Start chatting with your pet!</p>';
+        applyI18n();
+        return;
+    }
+
+    listEl.innerHTML = recent.reverse().map(m => {
+        const time = new Date(m.timestamp).toLocaleString();
+        const role = m.role === 'user' ? '👤' : '🤖';
+        const content = m.content.length > 100 ? m.content.substring(0, 100) + '...' : m.content;
+        const keywords = m.keywords?.slice(0, 5).join(', ') || '';
+        return `<div style="margin-bottom:8px; padding:8px; background:#f5f5f5; border-radius:4px;">
+            <div style="font-size:11px; color:#666; margin-bottom:4px;">${role} ${time}</div>
+            <div style="font-size:13px; margin-bottom:4px;">${content}</div>
+            ${keywords ? `<div style="font-size:10px; color:#999;">🏷️ ${keywords}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+document.getElementById('btn-refresh-memory')?.addEventListener('click', () => {
+    refreshMemoryUI();
+    showStatus('memory-status', 'Refreshed', 'success');
+});
+
+document.getElementById('btn-export-memory')?.addEventListener('click', () => {
+    if (!petSystem?.memorySystem) return;
+    const data = petSystem.memorySystem.exportMemories();
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `memory-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showStatus('memory-status', 'Exported successfully', 'success');
+});
+
+document.getElementById('btn-import-memory')?.addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const text = await file.text();
+        if (petSystem?.memorySystem?.importMemories(text)) {
+            refreshMemoryUI();
+            showStatus('memory-status', 'Imported successfully', 'success');
+        } else {
+            showStatus('memory-status', 'Import failed', 'error');
+        }
+    };
+    input.click();
+});
+
+document.getElementById('btn-clear-memory')?.addEventListener('click', () => {
+    if (!confirm('Clear all memories? This cannot be undone.')) return;
+    if (petSystem?.memorySystem) {
+        petSystem.memorySystem.clear();
+        refreshMemoryUI();
+        showStatus('memory-status', 'All memories cleared', 'success');
+    }
+});
 
 // ========== Max Tokens Multiplier ==========
 

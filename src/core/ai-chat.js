@@ -68,6 +68,10 @@ class AIChatClient {
 
         try {
             const maxTokens = Math.round(2048 * this.maxTokensMultiplier);
+            const hasImageInput = Array.isArray(messages) && messages.some(m =>
+                Array.isArray(m.content) && m.content.some(c => c?.type === 'image_url')
+            );
+            const temperature = hasImageInput ? 0.55 : 0.86;
             console.log(`[AIChatClient] Requesting with max_tokens: ${maxTokens}`);
             const response = await fetch(`${this.baseURL}/chat/completions`, {
                 method: 'POST',
@@ -79,7 +83,7 @@ class AIChatClient {
                     model: this.modelName,
                     messages: messages,
                     max_tokens: maxTokens,
-                    temperature: 0.86
+                    temperature
                 }),
                 signal: controller.signal
             });

@@ -5,3 +5,4 @@ dist/
 voicevox_core/
 nul
 build.bat
+whisper.cpp/

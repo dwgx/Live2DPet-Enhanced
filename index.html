@@ -129,6 +129,7 @@
         <button class="tab-btn" data-tab="emotion" data-i18n="tab.emotion">Emotion</button>
         <button class="tab-btn" data-tab="tts" data-i18n="tab.tts">TTS</button>
         <button class="tab-btn" data-tab="prompt" data-i18n="tab.prompt">Prompt</button>
+        <button class="tab-btn" data-tab="memory" data-i18n="tab.memory">Memory</button>
     </div>
 
     <!-- Settings Tab -->
@@ -151,11 +152,11 @@
     <div class="card">
         <h2 data-i18n="tl.title">Translation API (for TTS)</h2>
         <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n="tl.hint">Leave empty to reuse main API settings</p>
-        <label>API Base URL</label>
+        <label data-i18n="tl.baseUrl">API Base URL</label>
         <input type="text" id="tl-api-url" data-i18n-ph="tl.placeholder">
-        <label>API Key</label>
+        <label data-i18n="tl.key">API Key</label>
         <input type="password" id="tl-api-key" data-i18n-ph="tl.placeholder">
-        <label>Model Name</label>
+        <label data-i18n="tl.model">Model Name</label>
         <input type="text" id="tl-model-name" data-i18n-ph="tl.placeholder">
         <button class="btn btn-primary" id="btn-save-tl" data-i18n="btn.save">Save</button>
         <div class="status" id="tl-status"></div>
@@ -180,6 +181,84 @@
         <button class="btn btn-primary" id="btn-save-interval" data-i18n="btn.save">Save</button>
     </div>
     <div class="card">
+        <h2 data-i18n="voice.title">Voice Input</h2>
+        <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n="voice.hint">Start the pet first, then click Start Listening. Recognized text will be sent to AI automatically.</p>
+        <label data-i18n="voice.mode">Recognition Mode</label>
+        <select id="voice-mode">
+            <option value="webspeech" data-i18n="voice.mode.webspeech">Web Speech (built-in)</option>
+            <option value="api-stt" data-i18n="voice.mode.api">API STT (record + transcribe)</option>
+            <option value="whisper-stt" data-i18n="voice.mode.whisper">Whisper Local (GPU)</option>
+            <option value="local-stt" data-i18n="voice.mode.local">Local Offline (Windows)</option>
+        </select>
+        <div id="whisper-model-select" style="display:none; margin-top:8px;">
+            <label data-i18n="voice.whisper.model">Whisper Model</label>
+            <select id="whisper-model">
+                <option value="tiny">Tiny (75MB, fastest)</option>
+                <option value="base">Base (142MB, balanced)</option>
+                <option value="small" selected>Small (466MB, accurate)</option>
+                <option value="medium">Medium (1.5GB, very accurate)</option>
+                <option value="large">Large (2.9GB, best quality)</option>
+            </select>
+        </div>
+        <label data-i18n="voice.lang">Recognition Language</label>
+        <select id="voice-lang">
+            <option value="zh-CN">中文 (zh-CN)</option>
+            <option value="ja-JP">日本語 (ja-JP)</option>
+            <option value="en-US">English (en-US)</option>
+        </select>
+        <label data-i18n="voice.device">Microphone Device</label>
+        <select id="voice-device">
+            <option value="">Default Device</option>
+        </select>
+        <div id="voice-volume-meter" style="display:none;margin:8px 0;height:24px;background:#1a1a1a;border-radius:4px;overflow:hidden;position:relative;">
+            <div id="voice-volume-bar" style="height:100%;background:linear-gradient(90deg,#4CAF50,#8BC34A,#FFC107);width:0%;transition:width 0.08s ease-out;"></div>
+            <span id="voice-volume-text" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;color:#fff;text-shadow:0 0 2px #000;">0%</span>
+        </div>
+        <label style="display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <input type="checkbox" id="voice-auto-mode">
+            <span data-i18n="voice.auto">Auto Continuous Listen & Send</span>
+        </label>
+        <label style="display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <input type="checkbox" id="voice-text-repair" checked>
+            <span data-i18n="voice.repair">Auto Text Repair (local)</span>
+        </label>
+        <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n="voice.autoHint">When auto mode is on, recognition restarts automatically and sends each sentence to AI.</p>
+        <div class="btn-row">
+            <button class="btn btn-primary" id="btn-voice-listen" data-i18n="voice.listen">Start Listening</button>
+            <button class="btn btn-secondary" id="btn-voice-stop" data-i18n="voice.stop">Stop</button>
+        </div>
+        <textarea id="voice-transcript" rows="3" data-i18n-ph="voice.transcript.ph" placeholder="Recognized text appears here..."></textarea>
+        <div class="btn-row">
+            <button class="btn btn-secondary" id="btn-voice-send" data-i18n="voice.send">Send to AI</button>
+        </div>
+        <div id="voice-stt-config" style="margin-top:8px;">
+            <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n="voice.stt.hint">Leave empty to reuse main API settings</p>
+            <label data-i18n="voice.stt.baseUrl">STT Base URL</label>
+            <input type="text" id="voice-stt-base-url" data-i18n-ph="voice.stt.placeholder" placeholder="Leave empty to reuse main API">
+            <label data-i18n="voice.stt.apiKey">STT API Key</label>
+            <input type="password" id="voice-stt-api-key" data-i18n-ph="voice.stt.placeholder" placeholder="Leave empty to reuse main API">
+            <label data-i18n="voice.stt.model">STT Model</label>
+            <input type="text" id="voice-stt-model" data-i18n-ph="voice.stt.placeholder" placeholder="Leave empty to reuse main API">
+            <div class="btn-row">
+                <button class="btn btn-secondary" id="btn-voice-stt-save" data-i18n="voice.stt.save">Save STT Settings</button>
+            </div>
+        </div>
+        <div class="status" id="voice-status"></div>
+    </div>
+    <div class="card">
+        <h2 data-i18n="memory.settings.title">Memory Settings</h2>
+        <p style="font-size:12px;color:#888;margin-bottom:8px;" data-i18n="memory.settings.hint">Configure how AI remembers your conversations</p>
+        <label><input type="checkbox" id="memory-enabled" checked> <span data-i18n="memory.settings.enabled">Enable Long-term Memory</span></label>
+        <p style="font-size:11px;color:#666;margin:4px 0 8px 24px;" data-i18n="memory.settings.enabledHint">AI will remember past conversations and retrieve relevant context automatically</p>
+        <label style="margin-top:8px;" data-i18n="memory.settings.maxMemories">Max Memories to Keep</label>
+        <input type="number" id="memory-max" value="2000" min="100" max="10000" step="100">
+        <p style="font-size:11px;color:#666;margin:4px 0;" data-i18n="memory.settings.maxHint">Older memories will be automatically removed when limit is reached</p>
+        <div class="btn-row" style="margin-top:12px;">
+            <button class="btn btn-primary" id="btn-save-memory-settings" data-i18n="btn.save">Save</button>
+        </div>
+        <div class="status" id="memory-settings-status"></div>
+    </div>
+    <div class="card">
         <label style="display:inline-flex;align-items:center;gap:6px;">
             <input type="checkbox" id="enhance-enabled">
             <span data-i18n="enhance.master">Enable Enhancement</span>
@@ -193,7 +272,7 @@
         </div>
     </div>
     <div class="card" style="text-align:center;font-size:12px;color:#888;padding:8px">
-        <span data-i18n="footer.text">Open source & free. Get the latest version on</span> <a href="#" id="link-github" style="color:#58a6ff" data-i18n="footer.star">GitHub</a>
+        <span data-i18n="footer.text">Open source & free. Get the latest version on</span> <a href="https://github.com/x380kkm/Live2DPet" target="_blank" rel="noopener noreferrer" id="link-github" style="color:#58a6ff" data-i18n="footer.star">GitHub</a>
     </div>
     </div>
 
@@ -462,6 +541,36 @@
     </div>
     </div>
 
+    <!-- Memory Tab -->
+    <div id="tab-memory" class="tab-content">
+    <div class="card">
+        <h2 data-i18n="memory.title">Memory System</h2>
+        <p class="model-info" data-i18n="memory.hint">AI remembers your conversations using vector similarity search.</p>
+        <div class="status" id="memory-status"></div>
+    </div>
+    <div class="card">
+        <h3 data-i18n="memory.stats">Statistics</h3>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin:8px 0;">
+            <div><strong data-i18n="memory.total">Total Memories:</strong> <span id="memory-total">0</span></div>
+            <div><strong data-i18n="memory.embedded">Today / This Week:</strong> <span id="memory-embedded">0 / 0</span></div>
+        </div>
+    </div>
+    <div class="card">
+        <h3 data-i18n="memory.recent">Recent Memories</h3>
+        <div id="memory-list" style="max-height:300px; overflow-y:auto; border:1px solid #ddd; padding:8px; border-radius:4px;">
+            <p class="model-info" data-i18n="memory.empty">No memories yet. Start chatting with your pet!</p>
+        </div>
+    </div>
+    <div class="card">
+        <div class="btn-row">
+            <button class="btn btn-secondary" id="btn-refresh-memory" data-i18n="memory.refresh">Refresh</button>
+            <button class="btn btn-secondary" id="btn-export-memory" data-i18n="memory.export">Export</button>
+            <button class="btn btn-secondary" id="btn-import-memory" data-i18n="memory.import">Import</button>
+            <button class="btn btn-danger" id="btn-clear-memory" data-i18n="memory.clear">Clear All</button>
+        </div>
+    </div>
+    </div>
+
 
     <script src="src/i18n/locales.js"></script>
     <script src="src/core/ai-chat.js"></script>
@@ -477,6 +586,7 @@
     <script src="src/core/enhance/vlm-extractor.js"></script>
     <script src="src/core/enhance/knowledge-acquisition.js"></script>
     <script src="src/core/enhance/enhancement-orchestrator.js"></script>
+    <script src="src/core/memory-system.js"></script>
     <script src="src/core/desktop-pet-system.js"></script>
     <script src="src/renderer/settings-ui.js"></script>
 </body>

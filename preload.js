@@ -82,6 +82,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Default audio (Phase 2)
     generateDefaultAudio: (phrases, styleId) => ipcRenderer.invoke('generate-default-audio', phrases, styleId),
     loadDefaultAudio: () => ipcRenderer.invoke('load-default-audio'),
+    sttTranscribe: (payload) => ipcRenderer.invoke('stt-transcribe', payload),
+    localSttTranscribe: (payload) => ipcRenderer.invoke('local-stt-transcribe', payload),
+    localSttStop: () => ipcRenderer.invoke('local-stt-stop'),
+    whisperSttTranscribe: (payload) => ipcRenderer.invoke('whisper-stt-transcribe', payload),
+    whisperSttCheck: () => ipcRenderer.invoke('whisper-stt-check'),
 
     // Event listeners
     onCharacterUpdate: (cb) => ipcRenderer.on('character-update', (e, data) => cb(data)),

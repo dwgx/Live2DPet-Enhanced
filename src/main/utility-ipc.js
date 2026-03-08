@@ -77,7 +77,12 @@ function registerUtilityIPC(ctx, ipcMain, deps) {
 
     ipcMain.handle('open-external', async (_, url) => {
         if (!isValidURL(url)) return { success: false, error: 'invalid URL' };
-        await shell.openExternal(url);
+        try {
+            await shell.openExternal(url);
+            return { success: true };
+        } catch (e) {
+            return { success: false, error: e.message || String(e) };
+        }
     });
 
     ipcMain.handle('show-settings', async () => {

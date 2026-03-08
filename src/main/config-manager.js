@@ -8,7 +8,7 @@ const path = require('path');
 const { encrypt, decrypt } = require('./crypto-utils');
 
 const CURRENT_CONFIG_VERSION = 1;
-const ENCRYPTED_FIELDS = ['apiKey', 'translation.apiKey', 'enhance.search.customApiKey'];
+const ENCRYPTED_FIELDS = ['apiKey', 'translation.apiKey', 'speechToText.apiKey', 'enhance.search.customApiKey'];
 
 function getDefaultModelConfig() {
     return {
@@ -43,6 +43,12 @@ function getDefaultConfig() {
         emotionFrequency: 30,
         enabledEmotions: [],
         maxTokensMultiplier: 1.0,
+        voiceInput: { mode: 'api-stt', lang: 'en-US', autoContinuous: false, textRepair: true, deviceId: '' },
+        speechToText: {
+            baseURL: 'https://api.openai.com/v1',
+            apiKey: '',
+            modelName: 'gpt-4o-mini-transcribe'
+        },
         model: getDefaultModelConfig(),
         bubble: { frameImagePath: null },
         appIcon: null,
@@ -84,12 +90,14 @@ function createConfigManager(app, options = {}) {
     function decryptFields(config) {
         if (config.apiKey) config.apiKey = _decrypt(config.apiKey);
         if (config.translation?.apiKey) config.translation.apiKey = _decrypt(config.translation.apiKey);
+        if (config.speechToText?.apiKey) config.speechToText.apiKey = _decrypt(config.speechToText.apiKey);
         if (config.enhance?.search?.customApiKey) config.enhance.search.customApiKey = _decrypt(config.enhance.search.customApiKey);
     }
 
     function encryptFields(config) {
         if (config.apiKey) config.apiKey = _encrypt(config.apiKey);
         if (config.translation?.apiKey) config.translation.apiKey = _encrypt(config.translation.apiKey);
+        if (config.speechToText?.apiKey) config.speechToText.apiKey = _encrypt(config.speechToText.apiKey);
         if (config.enhance?.search?.customApiKey) config.enhance.search.customApiKey = _encrypt(config.enhance.search.customApiKey);
     }
 
@@ -110,6 +118,8 @@ function createConfigManager(app, options = {}) {
             const merged = {
                 ...defaults,
                 ...raw,
+                voiceInput: { ...(defaults.voiceInput || {}), ...(raw.voiceInput || {}) },
+                speechToText: { ...(defaults.speechToText || {}), ...(raw.speechToText || {}) },
                 model: { ...defaults.model, ...(raw.model || {}), paramMapping: { ...defaults.model.paramMapping, ...((raw.model || {}).paramMapping || {}) } },
                 bubble: { ...defaults.bubble, ...(raw.bubble || {}) },
                 tts: { ...(defaults.tts || {}), ...(raw.tts || {}) },
@@ -145,6 +155,8 @@ function createConfigManager(app, options = {}) {
             if (data.bubble) merged.bubble = { ...existing.bubble, ...data.bubble };
             if (data.tts) merged.tts = { ...(existing.tts || {}), ...data.tts };
             if (data.translation) merged.translation = { ...(existing.translation || {}), ...data.translation };
+            if (data.voiceInput) merged.voiceInput = { ...(existing.voiceInput || {}), ...data.voiceInput };
+            if (data.speechToText) merged.speechToText = { ...(existing.speechToText || {}), ...data.speechToText };
             if (data.enhance) {
                 merged.enhance = { ...(existing.enhance || {}), ...data.enhance };
                 if (data.enhance.memory) merged.enhance.memory = { ...(existing.enhance?.memory || {}), ...data.enhance.memory };

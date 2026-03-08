@@ -13,6 +13,7 @@ class DesktopPetSystem {
         this.lastAppName = null;
         this.isRequesting = false;
         this.emotionSystem = null;
+        this.memorySystem = null;
 
         // Audio state machine + playback tracking
         this.audioStateMachine = null;
@@ -56,6 +57,13 @@ class DesktopPetSystem {
 
         this.emotionSystem = new EmotionSystem(this);
         await this.emotionSystem.loadConfig();
+
+        // Memory system
+        if (typeof MemorySystem !== 'undefined') {
+            this.memorySystem = new MemorySystem();
+            this.memorySystem.loadFromStorage();
+            console.log('[DesktopPetSystem] Memory system initialized');
+        }
 
         // Audio state machine
         this.audioStateMachine = new AudioStateMachine();
@@ -574,6 +582,12 @@ class DesktopPetSystem {
         console.log(`[DesktopPetSystem] === Request (${messages.length} messages) ===\n${lines.join('\n')}`);
     }
 
+    _isRecentScreenshot(entry, maxAgeMs = 120000) {
+        if (!entry || !entry.base64) return false;
+        if (!entry.timestamp || typeof entry.timestamp !== 'number') return true;
+        return (Date.now() - entry.timestamp) <= maxAgeMs;
+    }
+
     async _processQueue() {
         if (this.isPlayingMessage) return;
         this.isPlayingMessage = true;
@@ -598,6 +612,93 @@ class DesktopPetSystem {
         }
 
         this.isPlayingMessage = false;
+    }
+
+    _handleAIResponse(response) {
+        if (!response) return;
+
+        // Store response in recent pool for anti-repetition analysis
+        const entry = { response, timestamp: Date.now(), analysis: null };
+        this.recentPool.push(entry);
+        this._analyzeResponse(entry).catch(e =>
+            console.warn('[DesktopPetSystem] Analysis failed:', e.message));
+
+        // Double-buffer: overwrite pending with latest
+        this.pendingMessage = response;
+        this._processQueue();
+    }
+
+    /**
+     * Send a direct user message (e.g., voice recognition text) to AI.
+     * Uses the same response playback pipeline as auto detection.
+     */
+    async sendUserMessage(userText) {
+        const text = (userText || '').trim();
+        if (!text) return { success: false, error: 'empty' };
+        if (!this.aiClient?.isConfigured()) return { success: false, error: 'api_not_configured' };
+        if (!this.isActive) return { success: false, error: 'pet_not_started' };
+        if (this.isRequesting) return { success: false, error: 'busy' };
+
+        this.isRequesting = true;
+        try {
+            let appName = null;
+            let bounds = null;
+            if (window.electronAPI?.getActiveWindow) {
+                try {
+                    const result = await window.electronAPI.getActiveWindow();
+                    if (result?.success && result.data?.owner?.name) {
+                        appName = result.data.title || result.data.owner.name;
+                        bounds = result.data.bounds;
+                    }
+                } catch (e) {}
+            }
+
+            if (this.enhancer) {
+                await this.enhancer.beforeRequest(appName || 'voice-input', null);
+            }
+
+            const dynamicContext = this.buildDynamicContext();
+            const currentSystemPrompt = this.promptBuilder.buildSystemPrompt(dynamicContext);
+            const now = new Date();
+            const timeStr = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+            const appInfo = appName
+                ? ` (${this._shortenTitle(appName, 50)}${bounds ? ` [${bounds.width}x${bounds.height}]` : ''})`
+                : '';
+
+            const userMessage = `[${timeStr}] ${text}${appInfo}`;
+
+            // Build messages with memory context
+            let messages = [{ role: 'system', content: currentSystemPrompt }];
+
+            if (this.memorySystem) {
+                const memoryContext = await this.memorySystem.getContextForPrompt(text, true);
+                const formattedMemories = this.memorySystem.formatMemoriesForPrompt(memoryContext);
+                messages.push(...formattedMemories);
+            }
+
+            messages.push({ role: 'user', content: userMessage });
+
+            this._logRequestText(messages);
+            const response = await this.aiClient.callAPI(messages);
+            this._handleAIResponse(response);
+
+            // Store in memory
+            if (this.memorySystem) {
+                await this.memorySystem.addMemory('user', text, { appName, timestamp: now.toISOString() });
+                await this.memorySystem.addMemory('assistant', response, { timestamp: now.toISOString() });
+            }
+
+            // Clear focus tracker after each AI request
+            this.focusTracker = {};
+
+            return { success: true, response };
+        } catch (error) {
+            console.error('[DesktopPetSystem] Voice request failed:', error);
+            return { success: false, error: error.message || String(error) };
+        } finally {
+            this.isRequesting = false;
+        }
     }
 
     async sendRequest(appName, bounds) {
@@ -691,9 +792,10 @@ class DesktopPetSystem {
                 } catch (e) {}
             }
             if (this.enhancer?.vlmExtractor) {
-                const older = this.enhancer.vlmExtractor.getScreenshotsForMainAI(1);
+                const older = this.enhancer.vlmExtractor.getScreenshotsForMainAI(2);
                 for (const entry of older) {
-                    if (screenshots.length > 0 && entry.base64 === screenshots[0].base64) continue;
+                    if (!this._isRecentScreenshot(entry)) continue;
+                    if (screenshots.some(s => s.base64 === entry.base64)) continue;
                     if (screenshots.length < maxScreenshots) screenshots.push(entry);
                 }
             }
@@ -733,9 +835,16 @@ class DesktopPetSystem {
                 const now = new Date();
                 const timeStr = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
                 const userContent = [
-                    { type: 'text', text: `[${timeStr}] ${textPrompt}${this._t('sys.screenshotAttached')}` }
+                    { type: 'text', text: `[${timeStr}] ${textPrompt}${this._t('sys.screenshotAttached')}\n${this._t('sys.visionGuidance')}` }
                 ];
-                for (const shot of screenshots) {
+                const nowMs = Date.now();
+                for (let i = 0; i < screenshots.length; i++) {
+                    const shot = screenshots[i];
+                    const ageSec = Math.max(0, Math.round((nowMs - (shot.timestamp || nowMs)) / 1000));
+                    const label = i === 0
+                        ? this._t('sys.currentScreenshotLabel')
+                        : this._t('sys.historyScreenshotLabel').replace('{0}', ageSec);
+                    userContent.push({ type: 'text', text: label });
                     userContent.push({
                         type: 'image_url',
                         image_url: { url: 'data:image/jpeg;base64,' + shot.base64 }
@@ -746,25 +855,19 @@ class DesktopPetSystem {
                 this._logRequestText(messages);
                 response = await this.aiClient.callAPI(messages);
             } else {
-                // No new screenshots — use idle prompt with timestamp
+                // No new screenshots — keep app context if available, avoid drifting into idle chatter.
                 const now = new Date();
                 const timeStr = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
-                const idlePrompt = this.promptBuilder.getIdlePrompt();
-                messages.push({ role: 'user', content: `[${timeStr}] ${idlePrompt}` });
+                const fallbackPrompt = appName
+                    ? this.promptBuilder.getAppDetectionPrompt(this._shortenTitle(appName, 50) + boundsInfo) + hitContext + '\n' + this._t('sys.noScreenshotHint')
+                    : this.promptBuilder.getIdlePrompt();
+                messages.push({ role: 'user', content: `[${timeStr}] ${fallbackPrompt}` });
                 this._logRequestText(messages);
                 response = await this.aiClient.callAPI(messages);
             }
 
             if (response) {
-                // Store response in recent pool for anti-repetition analysis
-                const entry = { response, timestamp: Date.now(), analysis: null };
-                this.recentPool.push(entry);
-                this._analyzeResponse(entry).catch(e =>
-                    console.warn('[DesktopPetSystem] Analysis failed:', e.message));
-
-                // Double-buffer: overwrite pending with latest
-                this.pendingMessage = response;
-                this._processQueue();
+                this._handleAIResponse(response);
             }
 
             // Clear focus tracker after each AI request
