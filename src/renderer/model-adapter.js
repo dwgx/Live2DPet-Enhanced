@@ -107,10 +107,19 @@ class Live2DAdapter extends ModelAdapter {
         if (!this.model || !this.pixiApp) return;
         const w = window.innerWidth, h = window.innerHeight;
         const origW = this.model._origW || this.model.width;
-        const scale = w / origW;
+        const origH = this.model._origH || this.model.height;
+
+        // Calculate scale to fit model in window
+        const scaleX = w / origW;
+        const scaleY = h / origH;
+        const scale = Math.min(scaleX, scaleY) * 0.9; // 0.9 for padding
+
         this.model.scale.set(scale);
         this.model.x = w / 2;
-        this.model.y = h * (this.config.canvasYRatio || 0.60);
+
+        // Center vertically with optional offset
+        const yRatio = this.config.canvasYRatio || 0.5;
+        this.model.y = h * yRatio;
     }
 
     _buildParamMap() {

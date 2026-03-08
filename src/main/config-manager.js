@@ -28,7 +28,7 @@ function getDefaultModelConfig() {
         expressions: [],
         expressionDurations: {},
         defaultExpressionDuration: 5000,
-        canvasYRatio: 0.60
+        canvasYRatio: 0.5
     };
 }
 
