@@ -937,9 +937,8 @@ function initVoiceInput(fileConfig = {}) {
         if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { deviceId: deviceSelect.value } });
     });
 
-    const whisperModelSelect = document.getElementById('whisper-model');
-    whisperModelSelect?.addEventListener('change', () => {
-        if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { whisperModel: whisperModelSelect.value } });
+    document.getElementById('whisper-model')?.addEventListener('change', (e) => {
+        if (window.electronAPI) window.electronAPI.saveConfig({ voiceInput: { whisperModel: e.target.value } });
     });
 
     sttSaveBtn?.addEventListener('click', () => {
