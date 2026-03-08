@@ -323,7 +323,7 @@ const I18N = {
   },
   zh: {
     'lang.label': '语言',
-    'tab.settings': '设置', 'tab.model': '模型', 'tab.emotion': '表情', 'tab.tts': 'TTS', 'tab.prompt': 'Prompt', 'tab.enhance': '增强',
+    'tab.settings': '设置', 'tab.model': '模型', 'tab.emotion': '表情', 'tab.tts': 'TTS', 'tab.prompt': 'Prompt', 'tab.enhance': '增强', 'tab.memory': '记忆',
     'api.title': 'API 配置',
     'api.hint': '提示：前往 openrouter.ai 注册账号，在 openrouter.ai/keys 创建 API Key。支持 Grok、Gemini 等多种模型',
     'api.baseUrl': 'API Base URL', 'api.key': 'API Key', 'api.model': '模型名称',
@@ -640,7 +640,7 @@ const I18N = {
   },
   ja: {
     'lang.label': '言語',
-    'tab.settings': '設定', 'tab.model': 'モデル', 'tab.emotion': '表情', 'tab.tts': 'TTS', 'tab.prompt': 'プロンプト', 'tab.enhance': '拡張',
+    'tab.settings': '設定', 'tab.model': 'モデル', 'tab.emotion': '表情', 'tab.tts': 'TTS', 'tab.prompt': 'プロンプト', 'tab.enhance': '拡張', 'tab.memory': 'メモリ',
     'api.title': 'API 設定',
     'api.hint': 'ヒント：OpenRouter などのアグリゲーションプラットフォームで API キーを取得し、openrouter.ai/keys で作成できます',
     'api.baseUrl': 'API ベース URL', 'api.key': 'API キー', 'api.model': 'モデル名',
