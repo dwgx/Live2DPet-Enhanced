@@ -6,7 +6,7 @@
 
 > If you find this useful, please consider giving it a [Star](https://github.com/x380kkm/Live2DPet) :)
 
-An Electron-based desktop pet. A Live2D character stays on your desktop, understands what you're doing through screenshots and window awareness, generates companionship dialogue through AI, supports click/drag/touch interactions, uses keyframe visual memory so the AI can review your recent activity, and speaks with VOICEVOX text-to-speech. Built with AI-assisted development using [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+An Electron-based desktop pet. A Live2D character stays on your desktop, understands what you're doing through screenshots and window awareness, generates companionship dialogue through AI, supports click/drag/touch interactions, uses keyframe visual memory so the AI can review your recent activity, and speaks with VOICEVOX text-to-speech.
 
 > **Privacy Notice**: This app periodically captures screenshots and sends them to your configured AI API for analysis. Screenshots are never saved to disk. Make sure you trust your API provider and be mindful of sensitive information displayed on screen.
 
