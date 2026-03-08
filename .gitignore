@@ -6,3 +6,4 @@ voicevox_core/
 nul
 build.bat
 whisper.cpp/
+bin/ffmpeg.exe
