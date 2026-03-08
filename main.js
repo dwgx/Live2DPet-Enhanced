@@ -26,6 +26,7 @@ const { registerModelImport } = require('./src/main/model-import');
 const { registerSTTIPC } = require('./src/main/stt-ipc');
 const { registerLocalSTTIPC } = require('./src/main/local-stt-ipc');
 const { registerWhisperSTTIPC } = require('./src/main/whisper-stt-ipc');
+const { setupMemoryIPC } = require('./src/main/memory-ipc');
 const { createPathUtils } = require('./src/utils/path-utils');
 const { TTSService } = require('./src/core/tts-service');
 const { TranslationService } = require('./src/core/translation-service');
@@ -85,6 +86,7 @@ registerSTTIPC(ctx, ipcMain, {
 
 registerLocalSTTIPC(ctx, ipcMain);
 registerWhisperSTTIPC(ctx, ipcMain);
+setupMemoryIPC(app);
 
 // ========== App Lifecycle ==========
 

@@ -110,6 +110,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     loadEnhanceData: () => ipcRenderer.invoke('load-enhance-data'),
     webSearch: (query, provider, options) => ipcRenderer.invoke('web-search', query, provider, options),
 
+    // Memory system
+    memory: {
+        save: (data) => ipcRenderer.invoke('memory:save', data),
+        load: () => ipcRenderer.invoke('memory:load'),
+        export: () => ipcRenderer.invoke('memory:export'),
+        import: (jsonData) => ipcRenderer.invoke('memory:import', jsonData),
+        clear: () => ipcRenderer.invoke('memory:clear')
+    },
+
     // Renderer log forwarding (avoids needing --enable-logging)
     rendererLog: (level, args) => ipcRenderer.send('renderer-log', level, args)
 });

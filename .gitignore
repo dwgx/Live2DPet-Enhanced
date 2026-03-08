@@ -7,3 +7,11 @@ nul
 build.bat
 whisper.cpp/
 bin/ffmpeg.exe
+
+# User models (keep README only)
+models/*
+!models/README.md
+
+# User data
+config.json
+assets/prompts/*.json

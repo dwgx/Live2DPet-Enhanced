@@ -122,35 +122,48 @@ class MemorySystem {
         }));
     }
 
-    clear() {
+    async clear() {
         this.memories = [];
-        this.saveToStorage();
-    }
-
-    saveToStorage() {
-        try {
-            localStorage.setItem('pet-memories', JSON.stringify({
-                memories: this.memories,
-                timestamp: Date.now()
-            }));
-        } catch (e) {
-            console.warn('[Memory] Failed to save to localStorage:', e);
+        if (window.electronAPI?.memory?.clear) {
+            await window.electronAPI.memory.clear();
         }
     }
 
-    loadFromStorage() {
+    async saveToStorage() {
+        if (!window.electronAPI?.memory?.save) {
+            console.warn('[Memory] IPC not available, skipping save');
+            return;
+        }
         try {
-            const data = localStorage.getItem('pet-memories');
-            if (data) {
-                const parsed = JSON.parse(data);
+            const result = await window.electronAPI.memory.save({
+                memories: this.memories,
+                timestamp: Date.now()
+            });
+            if (!result.success) {
+                console.warn('[Memory] Save failed:', result.error);
+            }
+        } catch (e) {
+            console.warn('[Memory] Failed to save:', e);
+        }
+    }
+
+    async loadFromStorage() {
+        if (!window.electronAPI?.memory?.load) {
+            console.warn('[Memory] IPC not available, skipping load');
+            return false;
+        }
+        try {
+            const result = await window.electronAPI.memory.load();
+            if (result.success && result.data) {
+                const parsed = result.data;
                 if (parsed.memories && Array.isArray(parsed.memories)) {
                     this.memories = parsed.memories;
-                    console.log(`[Memory] Loaded ${this.memories.length} memories from storage`);
+                    console.log(`[Memory] Loaded ${this.memories.length} memories from file`);
                     return true;
                 }
             }
         } catch (e) {
-            console.warn('[Memory] Failed to load from localStorage:', e);
+            console.warn('[Memory] Failed to load:', e);
         }
         return false;
     }
