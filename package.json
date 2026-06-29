@@ -12,7 +12,7 @@
     "build:dir": "electron-builder --win dir"
   },
   "dependencies": {
-    "active-win": "^8.2.1",
+    "active-win": "^9.0.0",
     "electron-log": "^5.4.3",
     "koffi": "^2.15.1"
   },
