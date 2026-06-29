@@ -18,7 +18,7 @@
   },
   "devDependencies": {
     "electron": "^28.3.3",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.live2dpet.app",
